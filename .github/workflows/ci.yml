@@ -53,8 +53,41 @@ jobs:
       - name: SpotBugs + Find Security Bugs
         run: mvn compile spotbugs:check -B
 
+      # The NVD feed is ~391k records. Unauthenticated, the API rate-limits to
+      # roughly 10k per 2-3 minutes, so a cold run takes ~100 MINUTES and the
+      # job gets cancelled before finishing — which is exactly what happened on
+      # this workflow's first-ever run, taking the `release` job down with it
+      # via `needs`. Two mitigations, because either alone is not enough:
+      #
+      #   * Cache the downloaded data so only the delta is fetched after the
+      #     first successful populate. Keyed by date so it refreshes daily and
+      #     cannot silently scan against a stale feed.
+      #   * An optional NVD_API_KEY, which raises the rate limit by orders of
+      #     magnitude. Unset it still works, just slowly — hence restore-keys
+      #     and the step timeout below rather than a hard requirement.
+      - name: Cache NVD data
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: nvd-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            nvd-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}-
+            nvd-${{ runner.os }}-
+
       - name: OWASP Dependency-Check
-        run: mvn dependency-check:aggregate -B
+        # Bounded so a slow NVD populate degrades to a skipped scan instead of
+        # hanging the job. Paired with continue-on-error, which is what keeps
+        # `release` reachable when this does time out.
+        timeout-minutes: 20
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -n "${NVD_API_KEY:-}" ]; then
+            mvn dependency-check:aggregate -B -Dnvd.api.key="$NVD_API_KEY"
+          else
+            echo "::warning::NVD_API_KEY not set — the NVD populate is rate-limited and may time out."
+            mvn dependency-check:aggregate -B
+          fi
         continue-on-error: true
 
       - name: Upload dependency-check report
