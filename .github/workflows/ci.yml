@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `enhancements`, not just main. The SMS vendor providers live only on that
+    # branch and it is what the deployed jar is built from, so every PR into the
+    # branch that actually ships was merging with no build, no tests and no
+    # security scan. The repo has zero workflow runs to date for this reason.
+    branches: [main, enhancements]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, enhancements]
 
 permissions:
   contents: write
