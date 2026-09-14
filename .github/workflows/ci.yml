@@ -2,13 +2,10 @@ name: CI
 
 on:
   push:
-    # `enhancements` carries the SMS vendor providers and is what the deployed
-    # jar is built from, so it needs the same validation as main — without this
-    # every PR targeting it merged with no build, no tests and no security scan.
-    branches: [main, enhancements]
+    branches: [main]
     tags: ['v*']
   pull_request:
-    branches: [main, enhancements]
+    branches: [main]
 
 permissions:
   contents: write
