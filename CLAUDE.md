@@ -70,8 +70,11 @@ Two things about it are easy to get wrong:
 
 - `SmsProvider.send(phone, message)` receives a **rendered** body, but the `http` provider
   forwards only the extracted OTP code. Under Indian DLT the delivered text must match the
-  template registered with the operator, so notification-service holds the authoritative copy
-  and this plugin's theme string is discarded. Do not "fix" this by sending the body.
+  template registered with the operator, so notification-service holds the authoritative copy.
+  Do not "fix" this by sending the body. The discarded string is the Java literal
+  `"Your verification code is: " + code` in `SmsOtpAuthenticator` / `SmsOtpGrantType` — it
+  does **not** come from `themes/`, and `extractOtp` takes the first 4-10 digit run, so
+  localising it must not put a digit ahead of the code.
 - The HMAC envelope is `METHOD\nPATH\nTIMESTAMP\nNONCE` where PATH is the request target
   *including any query string* — notification-service signs over `req.url`. The nonce is
   single-use for 60s server-side, so it must be freshly random per request, and the timestamp

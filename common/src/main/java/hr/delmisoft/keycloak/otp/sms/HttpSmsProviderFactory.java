@@ -69,6 +69,7 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
     private static final String DEFAULT_KEY_ID = "keycloak";
     private static final long DEFAULT_TIMEOUT_MS = 5000L;
 
+    private URI uri;
     private String url;
     private String keyId;
     private String secret;
@@ -91,6 +92,15 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
                     + "(or the equivalent SPI config) before activating provider 'http'.");
         }
 
+        // Parsed here, not at send time. `URI.create` throws an UNCHECKED
+        // IllegalArgumentException, which would sail straight past the
+        // `catch (SmsException)` in SmsOtpAuthenticator: the user would get
+        // Keycloak's generic error page instead of `smsSendError`, and the
+        // stack trace would name URI.create rather than the config key that is
+        // actually wrong. This is the first provider whose whole URL is
+        // operator-supplied — msg91 and twilio both use constant endpoints.
+        this.uri = parseUrl(url);
+
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(timeoutMs))
                 .build();
@@ -98,7 +108,25 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
 
     @Override
     public SmsProvider create(KeycloakSession session) {
-        return new HttpSmsProvider(httpClient, url, keyId, secret, templateId, otpVarName, timeoutMs);
+        return new HttpSmsProvider(httpClient, uri, keyId, secret, templateId, otpVarName, timeoutMs);
+    }
+
+    /** Null when absent or malformed; `send` turns that into a clean SmsException. */
+    static URI parseUrl(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            URI parsed = URI.create(raw.trim());
+            if (parsed.getScheme() == null || parsed.getHost() == null) {
+                LOG.errorf("SMS_HTTP_URL '%s' is not an absolute http(s) URL", raw);
+                return null;
+            }
+            return parsed;
+        } catch (IllegalArgumentException e) {
+            LOG.errorf("SMS_HTTP_URL '%s' is not a valid URL: %s", raw, e.getMessage());
+            return null;
+        }
     }
 
     @Override
@@ -156,17 +184,17 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         private static final SecureRandom RANDOM = new SecureRandom();
 
         private final HttpClient httpClient;
-        private final String url;
+        private final URI uri;
         private final String keyId;
         private final String secret;
         private final String templateId;
         private final String otpVarName;
         private final long timeoutMs;
 
-        HttpSmsProvider(HttpClient httpClient, String url, String keyId, String secret,
+        HttpSmsProvider(HttpClient httpClient, URI uri, String keyId, String secret,
                         String templateId, String otpVarName, long timeoutMs) {
             this.httpClient = httpClient;
-            this.url = url;
+            this.uri = uri;
             this.keyId = keyId;
             this.secret = secret;
             this.templateId = templateId;
@@ -176,8 +204,8 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
 
         @Override
         public void send(String phoneNumber, String message) throws SmsException {
-            if (url == null || url.isBlank() || secret == null || secret.isBlank()) {
-                throw new SmsException("HTTP SMS provider not configured");
+            if (uri == null || secret == null || secret.isBlank()) {
+                throw new SmsException("HTTP SMS provider not configured: check SMS_HTTP_URL and SMS_HTTP_SECRET");
             }
             if (phoneNumber == null || phoneNumber.isBlank()) {
                 throw new SmsException("Phone number is empty");
@@ -189,7 +217,6 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
             String otpCode = extractOtp(message);
             String body = buildJsonBody(phoneNumber.trim(), otpCode);
 
-            URI uri = URI.create(url);
             String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
             String nonce = newNonce();
             String signature = sign(secret, "POST", signingPath(uri), timestamp, nonce);
@@ -222,6 +249,12 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
                 // fresh code, so an identical payload means this exact OTP is
                 // already on its way — failing the login here would show the user
                 // an error for a code they are about to receive.
+                // This equivalence holds only while notification-service's dedupe key
+                // covers the message content. It does today — the fallback key hashes
+                // the whole payload, so the OTP itself is in the key — but the key used
+                // to be `channel:to:template_id`, under which two different codes to the
+                // same recipient would collide and this branch would report success for
+                // an OTP that was dropped.
                 if (resp.statusCode() == 409) {
                     LOG.warnf("OTP SMS suppressed as a duplicate by notification-service, "
                                     + "treating as sent: phone=%s latency_ms=%d response=%s",

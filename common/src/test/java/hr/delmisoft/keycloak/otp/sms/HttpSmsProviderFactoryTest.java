@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -38,7 +39,7 @@ class HttpSmsProviderFactoryTest {
 
     private static HttpSmsProviderFactory.HttpSmsProvider provider(HttpClient client) {
         return new HttpSmsProviderFactory.HttpSmsProvider(
-                client, URL, "keycloak", SECRET, "login_otp", "message", 5000L);
+                client, URI.create(URL), "keycloak", SECRET, "login_otp", "message", 5000L);
     }
 
     @SuppressWarnings("unchecked")
@@ -70,6 +71,31 @@ class HttpSmsProviderFactoryTest {
 
         SmsException ex = assertThrows(SmsException.class, () -> unconfigured.send("+919999999999", MESSAGE));
         assertThat(ex.getMessage(), containsString("not configured"));
+    }
+
+    @Test
+    void parseUrl_rejectsValuesThatWouldThrowOutOfSend() {
+        // URI.create throws an UNCHECKED IllegalArgumentException, which would
+        // escape the SmsException contract: the user sees Keycloak's generic
+        // error instead of `smsSendError`, and the trace names URI.create rather
+        // than the config key that is wrong.
+        assertThat(HttpSmsProviderFactory.parseUrl("http://ns:3000/notify"), notNullValue());
+        assertThat(HttpSmsProviderFactory.parseUrl("notification-service:3000/notify"), nullValue());
+        assertThat(HttpSmsProviderFactory.parseUrl("not a url at all"), nullValue());
+        assertThat(HttpSmsProviderFactory.parseUrl("/notify"), nullValue());
+        assertThat(HttpSmsProviderFactory.parseUrl(null), nullValue());
+        assertThat(HttpSmsProviderFactory.parseUrl("  "), nullValue());
+    }
+
+    @Test
+    void send_reportsAMalformedUrlAsAnSmsException() throws Exception {
+        HttpSmsProviderFactory.HttpSmsProvider p = new HttpSmsProviderFactory.HttpSmsProvider(
+                mock(HttpClient.class),
+                HttpSmsProviderFactory.parseUrl("notification-service:3000/notify"),
+                "keycloak", SECRET, "login_otp", "message", 5000L);
+
+        SmsException ex = assertThrows(SmsException.class, () -> p.send("+919999999999", MESSAGE));
+        assertThat(ex.getMessage(), containsString("SMS_HTTP_URL"));
     }
 
     @Test
@@ -132,6 +158,45 @@ class HttpSmsProviderFactoryTest {
 
         assertThat(body, not(containsString("verification code")));
         assertThat(body, not(containsString("\"body\"")));
+    }
+
+    @Test
+    void send_signsTheHeadersItActuallySends() throws Exception {
+        // The isolated sign() test hand-feeds all four components, so it cannot
+        // catch send() feeding the wrong ones. Swapping the timestamp to
+        // milliseconds keeps that test green and produces a 100%
+        // `401 Request expired` in every environment, because
+        // notification-service compares against epoch SECONDS with a 30s window.
+        // Recomputing from the request's own headers is what pins that.
+        HttpClient client = clientReturning(200, "{}");
+        provider(client).send("+919999999999", MESSAGE);
+
+        ArgumentCaptor<HttpRequest> req = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(req.capture(), any());
+        HttpRequest sent = req.getValue();
+
+        String timestamp = sent.headers().firstValue("X-NS-Timestamp").orElseThrow();
+        String nonce = sent.headers().firstValue("X-NS-Nonce").orElseThrow();
+        String signature = sent.headers().firstValue("X-NS-Signature").orElseThrow();
+
+        String expected = "v1=" + HttpSmsProviderFactory.HttpSmsProvider.sign(
+                SECRET, "POST", "/notify", timestamp, nonce);
+        assertThat(signature, equalTo(expected));
+    }
+
+    @Test
+    void send_stampsAnEpochSecondsTimestampInsideTheAcceptedWindow() throws Exception {
+        // notification-service rejects anything more than 30s from its own clock.
+        // Milliseconds here would be ~55 years out and fail 100% of the time.
+        HttpClient client = clientReturning(200, "{}");
+        provider(client).send("+919999999999", MESSAGE);
+
+        ArgumentCaptor<HttpRequest> req = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(req.capture(), any());
+
+        long sent = Long.parseLong(req.getValue().headers().firstValue("X-NS-Timestamp").orElseThrow());
+        long nowSeconds = System.currentTimeMillis() / 1000L;
+        assertThat(Math.abs(nowSeconds - sent) < 30, equalTo(true));
     }
 
     @Test

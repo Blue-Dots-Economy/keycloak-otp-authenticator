@@ -405,7 +405,8 @@ Equivalent CLI flags:
   --spi-sms-http-secret="$SMS_HTTP_SECRET" \
   --spi-sms-http-key-id=keycloak \
   --spi-sms-http-template-id=login_otp \
-  --spi-sms-http-otp-var-name=message
+  --spi-sms-http-otp-var-name=message \
+  --spi-sms-http-timeout-ms=5000
 ```
 
 `SMS_HTTP_KEY_ID` must name an entry in notification-service's `internal-secrets.json`, and
@@ -424,8 +425,13 @@ shows up as `401 Request expired`.
 
 That is deliberate. Under Indian DLT rules the delivered text must match the template
 registered with the operator, so the authoritative copy is the one notification-service
-holds — not the string rendered from this plugin's theme messages. The provider extracts the
-numeric code from the outbound body the same way the MSG91 provider does.
+holds. The provider extracts the numeric code from the outbound body the same way the MSG91
+provider does.
+
+The body it discards is the Java literal `"Your verification code is: " + code` built in
+`SmsOtpAuthenticator` / `SmsOtpGrantType` — nothing in `themes/` produces it. Worth knowing
+before localising that string: `extractOtp` scans for the first run of 4-10 digits, so a
+digit introduced ahead of the code would be sent as the OTP.
 
 Two behaviours worth knowing:
 
@@ -435,7 +441,13 @@ Two behaviours worth knowing:
 - **A `409` is treated as sent.** notification-service suppresses an identical payload inside
   its dedupe window. Every login mints a fresh code, so an identical payload means this exact
   OTP is already on its way; failing here would show the user an error for a code they are
-  about to receive.
+  about to receive. This holds only while NS's dedupe key covers message *content* — it does
+  today (the fallback key hashes the whole payload), but the key used to be
+  `channel:to:template_id`, under which two different codes to one recipient would collide
+  and this branch would report success for a dropped OTP.
+- **A malformed `SMS_HTTP_URL` is caught at startup**, logged with the offending value, and
+  turns every send into a clean `SmsException` naming the config key — rather than an
+  unchecked `IllegalArgumentException` escaping into Keycloak's generic error page.
 
 ### Implementing a Custom SMS Provider
 

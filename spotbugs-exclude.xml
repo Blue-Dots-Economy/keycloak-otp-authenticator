@@ -9,6 +9,7 @@
             <Class name="hr.delmisoft.keycloak.otp.EmailOtpAuthenticatorFactory"/>
             <Class name="hr.delmisoft.keycloak.otp.OtpChannelChoiceAuthenticatorFactory"/>
             <Class name="hr.delmisoft.keycloak.otp.sms.SmsOtpAuthenticatorFactory"/>
+            <Class name="hr.delmisoft.keycloak.otp.identifier.IdentifierFormAuthenticatorFactory"/>
         </Or>
     </Match>
 </FindBugsFilter>
