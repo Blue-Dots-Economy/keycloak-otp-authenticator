@@ -14,11 +14,6 @@ public class IdentifierFormAuthenticatorFactory implements AuthenticatorFactory 
 
     private static final IdentifierFormAuthenticator INSTANCE = new IdentifierFormAuthenticator();
 
-    private static final AuthenticationExecutionModel.Requirement[] REQUIREMENT_CHOICES = {
-            AuthenticationExecutionModel.Requirement.REQUIRED,
-            AuthenticationExecutionModel.Requirement.ALTERNATIVE,
-    };
-
     @Override
     public String getId() {
         return IdentifierFormConst.PROVIDER_ID;

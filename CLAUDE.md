@@ -58,7 +58,27 @@ themes (no Java dependencies)
 **common** (`hr.delmisoft.keycloak.otp`) — shared infrastructure:
 - `EmailOtpConst` / `SmsOtpConst` — constants (provider IDs, config keys, defaults, auth note keys, error codes)
 - Custom SMS SPI: `SmsProvider` / `SmsProviderFactory` / `SmsSpi` with `LogSmsSenderFactory` default
+- SMS providers: `log`, `http`, `twilio`, `sns`, `msg91`, selected at runtime by `KC_SPI_SMS_PROVIDER`
 - SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`
+
+**Prefer `http` (`HttpSmsProviderFactory`) for new vendors.** Every other provider hardcodes
+one vendor, so each new one costs a Java change → jar rebuild → Keycloak image → tag pin →
+chart change. `http` delegates to notification-service, which owns vendor selection, so that
+chain runs once rather than per vendor.
+
+Two things about it are easy to get wrong:
+
+- `SmsProvider.send(phone, message)` receives a **rendered** body, but the `http` provider
+  forwards only the extracted OTP code. Under Indian DLT the delivered text must match the
+  template registered with the operator, so notification-service holds the authoritative copy.
+  Do not "fix" this by sending the body. The discarded string is the Java literal
+  `"Your verification code is: " + code` in `SmsOtpAuthenticator` / `SmsOtpGrantType` — it
+  does **not** come from `themes/`, and `extractOtp` takes the first 4-10 digit run, so
+  localising it must not put a digit ahead of the code.
+- The HMAC envelope is `METHOD\nPATH\nTIMESTAMP\nNONCE` where PATH is the request target
+  *including any query string* — notification-service signs over `req.url`. The nonce is
+  single-use for 60s server-side, so it must be freshly random per request, and the timestamp
+  window is ±30s.
 
 **otp-2fa** — browser flow authenticators (2FA after password):
 - `EmailOtpAuthenticator` / `EmailOtpAuthenticatorFactory` — email OTP form

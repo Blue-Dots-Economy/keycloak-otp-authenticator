@@ -269,11 +269,12 @@ Email OTP uses Keycloak's built-in email provider. Configure SMTP settings in th
 
 ## SMS Provider SPI
 
-SMS sending is pluggable via a custom SPI. Four providers ship with the plugin out of the box:
+SMS sending is pluggable via a custom SPI. Five providers ship with the plugin out of the box:
 
 | Provider id | Class | Use case |
 |---|---|---|
 | `log`    | `LogSmsSenderFactory`   | Default. Writes the OTP to Keycloak's stdout. Dev / E2E only. |
+| `http`   | `HttpSmsProviderFactory`   | **Preferred for Blue Dots.** Hands the OTP to notification-service, which owns the vendor. |
 | `twilio` | `TwilioSmsProviderFactory` | Sends via Twilio Programmable Messaging. |
 | `sns`    | `SnsSmsProviderFactory`    | Sends via Amazon SNS Publish (region-scoped). |
 | `msg91`  | `Msg91SmsProviderFactory`  | Sends via MSG91 Flow API (DLT-compliant for India). |
@@ -370,6 +371,83 @@ Equivalent CLI flags:
 ```
 
 The provider extracts the numeric OTP from the outbound SMS body (`"Your verification code is: 123456"`) and posts it under `MSG91_OTP_VAR_NAME` to the configured Flow template — keep the template body using the same variable name. Like Twilio, MSG91 uses JDK 17's `HttpClient` directly with zero extra runtime dependencies.
+
+### Using the HTTP Provider (notification-service)
+
+Every other provider here teaches Keycloak the name of one vendor. Adding the next one
+then costs a Java change, a jar rebuild, a Keycloak image build, an image tag pin and a
+chart change — repeated per vendor, forever.
+
+`http` pays that once. It posts the OTP to the Blue Dots **notification-service**, which
+owns the vendor selection, so a new SMS vendor becomes a change in one service and nothing
+here moves. It also removes a duplicated setting: with `msg91` the login-OTP template id is
+configured both here and in notification-service, whereas here the template is only *named*
+and the notification service owns its vendor-side id and its text.
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_SMS_PROVIDER:     http
+  SMS_HTTP_URL:            http://notification-service:3000/notify   # required
+  SMS_HTTP_SECRET:         ${SMS_HTTP_SECRET}                        # required, HMAC shared secret
+  SMS_HTTP_KEY_ID:         keycloak                                  # default: keycloak
+  SMS_HTTP_TEMPLATE_ID:    login_otp                                 # default: login_otp
+  SMS_HTTP_OTP_VAR_NAME:   message                                   # default: message
+  SMS_HTTP_TIMEOUT_MS:     5000                                      # default: 5000
+```
+
+Equivalent CLI flags:
+
+```bash
+/opt/keycloak/bin/kc.sh start \
+  --spi-sms-provider=http \
+  --spi-sms-http-url="$SMS_HTTP_URL" \
+  --spi-sms-http-secret="$SMS_HTTP_SECRET" \
+  --spi-sms-http-key-id=keycloak \
+  --spi-sms-http-template-id=login_otp \
+  --spi-sms-http-otp-var-name=message \
+  --spi-sms-http-timeout-ms=5000
+```
+
+`SMS_HTTP_KEY_ID` must name an entry in notification-service's `internal-secrets.json`, and
+`SMS_HTTP_SECRET` must be that entry's secret. Requests carry notification-service's HMAC
+envelope — `X-NS-Key`, `X-NS-Timestamp`, `X-NS-Nonce` and
+`X-NS-Signature: v1=<hmac_sha256>` over `METHOD\nPATH\nTIMESTAMP\nNONCE`. The timestamp is
+checked against a ±30s window and the nonce is single-use for 60s, so server clock skew
+shows up as `401 Request expired`.
+
+**Only the code is sent, not the rendered text:**
+
+```json
+{"channel":"sms","to":"+919999999999","template_id":"login_otp",
+ "priority":"realtime","variables":{"message":"123456"}}
+```
+
+That is deliberate. Under Indian DLT rules the delivered text must match the template
+registered with the operator, so the authoritative copy is the one notification-service
+holds. The provider extracts the numeric code from the outbound body the same way the MSG91
+provider does.
+
+The body it discards is the Java literal `"Your verification code is: " + code` built in
+`SmsOtpAuthenticator` / `SmsOtpGrantType` — nothing in `themes/` produces it. Worth knowing
+before localising that string: `extractOtp` scans for the first run of 4-10 digits, so a
+digit introduced ahead of the code would be sent as the OTP.
+
+Two behaviours worth knowing:
+
+- **Login gains a hard dependency on notification-service** being reachable. The timeout
+  defaults to 5s and a non-positive value is rejected, because this call sits inside an
+  interactive login and "wait forever" is worse than any misconfiguration it could mask.
+- **A `409` is treated as sent.** notification-service suppresses an identical payload inside
+  its dedupe window. Every login mints a fresh code, so an identical payload means this exact
+  OTP is already on its way; failing here would show the user an error for a code they are
+  about to receive. This holds only while NS's dedupe key covers message *content* — it does
+  today (the fallback key hashes the whole payload), but the key used to be
+  `channel:to:template_id`, under which two different codes to one recipient would collide
+  and this branch would report success for a dropped OTP.
+- **A malformed `SMS_HTTP_URL` is caught at startup**, logged with the offending value, and
+  turns every send into a clean `SmsException` naming the config key — rather than an
+  unchecked `IllegalArgumentException` escaping into Keycloak's generic error page.
 
 ### Implementing a Custom SMS Provider
 
