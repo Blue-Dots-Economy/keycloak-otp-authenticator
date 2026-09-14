@@ -2,10 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `enhancements`, not just main. It carries the msg91/twilio/sns SMS
+    # providers and is what the deployed jar is built from, so PRs into the
+    # branch that actually ships were merging with no build, no tests and no
+    # scan — which is why this repo had no CI history at all.
+    #
+    # Safe to widen only now that Dependency-Check has moved off this path;
+    # before that, every PR here would have paid a 67-minute step (#4).
+    branches: [main, enhancements]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, enhancements]
 
 permissions:
   contents: write
