@@ -1,0 +1,82 @@
+name: Dependency Check
+
+# OWASP Dependency-Check does NOT belong on the PR path.
+#
+# It reports on the dependency set, which changes on a dependency bump — not on
+# each PR — so running it per-PR buys no signal a weekly run doesn't. What it
+# does buy is latency: the first run on this repo spent 55+ minutes in a cold
+# NVD sync while `continue-on-error: true` guaranteed it could not fail
+# anything. Every PR into `main` and `enhancements` would have paid that.
+#
+# Here it runs on demand, and WITHOUT continue-on-error, so the pom's
+# failBuildOnCVSS=7 is finally load-bearing instead of decorative.
+#
+# Hand-triggered rather than scheduled (#4): this repo sees little development,
+# so a weekly cron would run far more often than the dependency set changes.
+# The trade-off is that GitHub evicts caches after 7 days idle, so a run here
+# will usually start from a COLD NVD sync — which makes the API key below the
+# thing that keeps this inside its timeout, not the cache. Run it after a
+# dependency bump, or before cutting a release tag.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-check
+  cancel-in-progress: false
+
+jobs:
+  owasp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          # Deliberately NO `cache: maven` here. That caches all of
+          # ~/.m2/repository, which CONTAINS the NVD data directory below — the
+          # two would overlap and save a multi-GB entry keyed on pom hashes.
+          # The NVD data is cached explicitly instead; the handful of plugin
+          # jars this job needs are cheap to refetch.
+
+      - name: Date stamp for the cache key
+        id: stamp
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache NVD database
+        uses: actions/cache@v4
+        with:
+          # dependency-check-maven's default dataDirectory.
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: nvd-${{ steps.stamp.outputs.day }}
+          # Restore any older database on a key miss, so two runs close together
+          # do an incremental update instead of a second full cold sync. Dated
+          # daily rather than weekly because the trigger is manual: two runs in
+          # one week should not share a key and skip the delta.
+          restore-keys: |
+            nvd-
+
+      - name: OWASP Dependency-Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -n "$NVD_API_KEY" ]; then
+            mvn dependency-check:aggregate -B -DnvdApiKey="$NVD_API_KEY"
+          else
+            echo "::warning title=No NVD API key::Set the NVD_API_KEY secret (free from https://nvd.nist.gov/developers/request-an-api-key). Without it the NVD API throttles to ~5 requests/30s instead of 50, and a cold sync can exceed this job's timeout."
+            mvn dependency-check:aggregate -B
+          fi
+
+      - name: Upload dependency-check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.html
+          if-no-files-found: ignore
