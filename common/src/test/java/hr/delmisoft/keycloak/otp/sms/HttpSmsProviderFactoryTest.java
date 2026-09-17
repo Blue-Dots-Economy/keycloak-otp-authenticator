@@ -270,9 +270,9 @@ class HttpSmsProviderFactoryTest {
 
     @Test
     void maskPhone_keepsOnlyTheLastFourDigits() {
-        assertThat(HttpSmsProviderFactory.HttpSmsProvider.maskPhone("+91 99999-91234"),
+        assertThat(SmsLogSafe.maskPhone("+91 99999-91234"),
                 equalTo("****1234"));
-        assertThat(HttpSmsProviderFactory.HttpSmsProvider.maskPhone("123"), equalTo("****"));
+        assertThat(SmsLogSafe.maskPhone("123"), equalTo("****"));
     }
 
     @Test

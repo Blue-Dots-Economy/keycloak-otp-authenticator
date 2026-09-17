@@ -101,6 +101,9 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         // operator-supplied — msg91 and twilio both use constant endpoints.
         this.uri = parseUrl(url);
 
+        // Redirects are deliberately not followed: HttpClient's default policy is
+        // NEVER unless followRedirects() is set. A 3xx from an SMS gateway would
+        // otherwise replay the auth headers and the OTP to whatever host it names.
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(timeoutMs))
                 .build();
@@ -240,7 +243,7 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
 
                 if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
                     LOG.infof("OTP SMS handed to notification-service: phone=%s status=%d latency_ms=%d",
-                            maskPhone(phoneNumber), resp.statusCode(), latencyMs);
+                            SmsLogSafe.maskPhone(phoneNumber), resp.statusCode(), latencyMs);
                     return;
                 }
 
@@ -258,24 +261,26 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
                 if (resp.statusCode() == 409) {
                     LOG.warnf("OTP SMS suppressed as a duplicate by notification-service, "
                                     + "treating as sent: phone=%s latency_ms=%d response=%s",
-                            maskPhone(phoneNumber), latencyMs, responseBody);
+                            SmsLogSafe.maskPhone(phoneNumber), latencyMs,
+                            SmsLogSafe.boundedResponse(responseBody));
                     return;
                 }
 
                 LOG.errorf("OTP SMS rejected by notification-service: phone=%s status=%d latency_ms=%d response=%s",
-                        maskPhone(phoneNumber), resp.statusCode(), latencyMs, responseBody);
+                        SmsLogSafe.maskPhone(phoneNumber), resp.statusCode(), latencyMs,
+                        SmsLogSafe.boundedResponse(responseBody));
                 throw new SmsException("notification-service send failed: HTTP "
-                        + resp.statusCode() + " " + responseBody);
+                        + resp.statusCode() + " " + SmsLogSafe.boundedResponse(responseBody));
             } catch (java.io.IOException e) {
                 long latencyMs = System.currentTimeMillis() - startedAt;
                 LOG.errorf(e, "OTP SMS IO error talking to notification-service: phone=%s latency_ms=%d error=%s",
-                        maskPhone(phoneNumber), latencyMs, e.getMessage());
+                        SmsLogSafe.maskPhone(phoneNumber), latencyMs, e.getMessage());
                 throw new SmsException("notification-service send IO error", e);
             } catch (InterruptedException e) {
                 long latencyMs = System.currentTimeMillis() - startedAt;
                 Thread.currentThread().interrupt();
                 LOG.errorf(e, "OTP SMS interrupted: phone=%s latency_ms=%d",
-                        maskPhone(phoneNumber), latencyMs);
+                        SmsLogSafe.maskPhone(phoneNumber), latencyMs);
                 throw new SmsException("notification-service send interrupted", e);
             }
         }
@@ -340,12 +345,6 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
                 return m.group(1);
             }
             throw new SmsException("HTTP SMS provider: could not extract OTP code from message");
-        }
-
-        /** Logs are not a place for whole phone numbers. */
-        static String maskPhone(String phoneNumber) {
-            String digits = phoneNumber.replaceAll("[^0-9]", "");
-            return digits.length() <= 4 ? "****" : "****" + digits.substring(digits.length() - 4);
         }
 
         private static String jsonEscape(String value) {

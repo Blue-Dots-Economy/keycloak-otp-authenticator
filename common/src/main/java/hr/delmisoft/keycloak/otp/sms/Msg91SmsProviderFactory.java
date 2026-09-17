@@ -61,6 +61,9 @@ public class Msg91SmsProviderFactory implements SmsProviderFactory {
                     + "provider 'msg91'.");
         }
 
+        // Redirects are deliberately not followed: HttpClient's default policy is
+        // NEVER unless followRedirects() is set. A 3xx from an SMS gateway would
+        // otherwise replay the auth headers and the OTP to whatever host it names.
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -155,23 +158,27 @@ public class Msg91SmsProviderFactory implements SmsProviderFactory {
                 long latencyMs = System.currentTimeMillis() - startedAt;
                 String responseBody = resp.body() == null ? "" : resp.body();
                 if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
-                    LOG.infof("MSG91 SMS dispatched: phone=%s status=%d latency_ms=%d response=%s",
-                            normalisedPhone, resp.statusCode(), latencyMs, responseBody);
+                    // No response body on the success path: it echoes request
+                    // context back and tells us nothing a 2xx has not already.
+                    LOG.infof("MSG91 SMS dispatched: phone=%s status=%d latency_ms=%d",
+                            SmsLogSafe.maskPhone(normalisedPhone), resp.statusCode(), latencyMs);
                     return;
                 }
                 LOG.errorf("MSG91 SMS failed: phone=%s status=%d latency_ms=%d response=%s",
-                        normalisedPhone, resp.statusCode(), latencyMs, responseBody);
-                throw new SmsException("MSG91 send failed: HTTP " + resp.statusCode() + " " + responseBody);
+                        SmsLogSafe.maskPhone(normalisedPhone), resp.statusCode(), latencyMs,
+                        SmsLogSafe.boundedResponse(responseBody));
+                throw new SmsException("MSG91 send failed: HTTP " + resp.statusCode()
+                        + " " + SmsLogSafe.boundedResponse(responseBody));
             } catch (java.io.IOException e) {
                 long latencyMs = System.currentTimeMillis() - startedAt;
                 LOG.errorf(e, "MSG91 SMS IO error: phone=%s latency_ms=%d error=%s",
-                        normalisedPhone, latencyMs, e.getMessage());
+                        SmsLogSafe.maskPhone(normalisedPhone), latencyMs, e.getMessage());
                 throw new SmsException("MSG91 send IO error", e);
             } catch (InterruptedException e) {
                 long latencyMs = System.currentTimeMillis() - startedAt;
                 Thread.currentThread().interrupt();
                 LOG.errorf(e, "MSG91 SMS interrupted: phone=%s latency_ms=%d",
-                        normalisedPhone, latencyMs);
+                        SmsLogSafe.maskPhone(normalisedPhone), latencyMs);
                 throw new SmsException("MSG91 send interrupted", e);
             }
         }

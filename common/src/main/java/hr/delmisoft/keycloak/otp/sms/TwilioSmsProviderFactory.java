@@ -58,6 +58,9 @@ public class TwilioSmsProviderFactory implements SmsProviderFactory {
                     + "before activating provider 'twilio'.");
         }
 
+        // Redirects are deliberately not followed: HttpClient's default policy is
+        // NEVER unless followRedirects() is set. A 3xx from an SMS gateway would
+        // otherwise replay the auth headers and the OTP to whatever host it names.
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -143,7 +146,8 @@ public class TwilioSmsProviderFactory implements SmsProviderFactory {
             try {
                 HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
                 if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
-                    LOG.debugf("Twilio SMS dispatched to %s (status=%d)", phoneNumber, resp.statusCode());
+                    LOG.debugf("Twilio SMS dispatched to %s (status=%d)",
+                            SmsLogSafe.maskPhone(phoneNumber), resp.statusCode());
                     return;
                 }
                 throw new SmsException("Twilio send failed: HTTP " + resp.statusCode() + " " + resp.body());

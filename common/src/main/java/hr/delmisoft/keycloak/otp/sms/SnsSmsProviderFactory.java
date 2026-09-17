@@ -191,7 +191,8 @@ public class SnsSmsProviderFactory implements SmsProviderFactory {
 
             try {
                 PublishResponse resp = client.publish(req);
-                LOG.debugf("SNS SMS dispatched to %s (messageId=%s)", phoneNumber, resp.messageId());
+                LOG.debugf("SNS SMS dispatched to %s (messageId=%s)",
+                        SmsLogSafe.maskPhone(phoneNumber), resp.messageId());
             } catch (SnsException e) {
                 throw new hr.delmisoft.keycloak.otp.sms.SmsException(
                         "SNS publish failed: " + e.awsErrorDetails().errorCode()
