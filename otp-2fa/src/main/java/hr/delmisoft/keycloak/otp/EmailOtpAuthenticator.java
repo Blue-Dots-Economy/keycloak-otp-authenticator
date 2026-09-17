@@ -18,6 +18,8 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
+import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
+
 public class EmailOtpAuthenticator implements Authenticator {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -88,6 +90,12 @@ public class EmailOtpAuthenticator implements Authenticator {
 
         // Constant-time comparison
         if (MessageDigest.isEqual(storedCode.getBytes(StandardCharsets.UTF_8), enteredOtp.getBytes(StandardCharsets.UTF_8))) {
+            // The user just proved control of the address the code went to — record it,
+            // otherwise email_verified stays false in every token forever.
+            if (getConfigBoolean(context, EmailOtpConst.CONFIG_MARK_VERIFIED, EmailOtpConst.DEFAULT_MARK_VERIFIED)) {
+                OtpVerificationRecorder.markEmailVerified(context.getUser(),
+                        authSession.getAuthNote(EmailOtpConst.AUTH_NOTE_EMAIL));
+            }
             context.success();
         } else {
             authSession.setAuthNote(EmailOtpConst.AUTH_NOTE_ATTEMPTS, String.valueOf(attempts + 1));
@@ -122,6 +130,8 @@ public class EmailOtpAuthenticator implements Authenticator {
                     .setRealm(context.getRealm())
                     .setUser(context.getUser())
                     .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE, new HashMap<>(Map.of("code", code)));
+            // Remember the delivery target so verification can only mark that address verified
+            context.getAuthenticationSession().setAuthNote(EmailOtpConst.AUTH_NOTE_EMAIL, context.getUser().getEmail());
             return true;
         } catch (EmailException e) {
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
@@ -134,6 +144,15 @@ public class EmailOtpAuthenticator implements Authenticator {
         int bound = (int) Math.pow(10, length);
         int code = RANDOM.nextInt(bound);
         return String.format("%0" + length + "d", code);
+    }
+
+    private static boolean getConfigBoolean(AuthenticationFlowContext context, String key, boolean defaultValue) {
+        AuthenticatorConfigModel config = context.getAuthenticatorConfig();
+        if (config == null || config.getConfig() == null) {
+            return defaultValue;
+        }
+        String value = config.getConfig().get(key);
+        return (value == null || value.isBlank()) ? defaultValue : Boolean.parseBoolean(value);
     }
 
     private static int getConfigInt(AuthenticationFlowContext context, String key, int defaultValue) {

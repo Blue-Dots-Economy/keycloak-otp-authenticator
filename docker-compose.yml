@@ -9,6 +9,38 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_SPI_THEME_FOLDER_ENABLED: "false"
+
+      # ── SMS provider selection ──────────────────────────────────────────
+      # `log`    — default; writes the OTP to Keycloak's stdout (dev-only)
+      # `twilio` — sends via Twilio Programmable Messaging
+      # `sns`    — sends via Amazon SNS Publish (region-scoped)
+      # `msg91`  — sends via MSG91 Flow API (DLT-compliant for India)
+      # Switch by changing this single env var; no code change required.
+      KC_SPI_SMS_PROVIDER: ${KC_SPI_SMS_PROVIDER:-log}
+
+      # ── Twilio (used only when KC_SPI_SMS_PROVIDER=twilio) ──────────────
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+
+      # ── Amazon SNS (used only when KC_SPI_SMS_PROVIDER=sns) ─────────────
+      # If access keys are omitted, the AWS SDK default credential chain is
+      # used (env / ECS task role / EC2 instance profile / ~/.aws/credentials)
+      # — preferred for production on EKS with IRSA.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_SNS_SENDER_ID: ${AWS_SNS_SENDER_ID:-}
+      AWS_SNS_SMS_TYPE: ${AWS_SNS_SMS_TYPE:-Transactional}
+
+      # ── MSG91 (used only when KC_SPI_SMS_PROVIDER=msg91) ────────────────
+      # Flow API requires a DLT-approved template (template_id) and sender id
+      # for Indian carriers. OTP_VAR_NAME must match the variable placeholder
+      # in the msg91 template body (e.g. ##var## → MSG91_OTP_VAR_NAME=var).
+      MSG91_AUTH_KEY: ${MSG91_AUTH_KEY:-}
+      MSG91_TEMPLATE_ID: ${MSG91_TEMPLATE_ID:-}
+      MSG91_SENDER_ID: ${MSG91_SENDER_ID:-}
+      MSG91_OTP_VAR_NAME: ${MSG91_OTP_VAR_NAME:-var}
     ports:
       - "8080:8080"
     depends_on:

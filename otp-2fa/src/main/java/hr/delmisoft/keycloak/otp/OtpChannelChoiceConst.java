@@ -11,9 +11,12 @@ public final class OtpChannelChoiceConst {
     public static final String CONFIG_TTL = "otpChoice.ttl";
     public static final String CONFIG_MAX_RETRIES = "otpChoice.maxRetries";
     public static final String CONFIG_PHONE_ATTRIBUTE = "otpChoice.phoneAttribute";
+    public static final String CONFIG_PHONE_VERIFIED_ATTRIBUTE = "otpChoice.phoneVerifiedAttribute";
+    public static final String CONFIG_MARK_VERIFIED = "otpChoice.markVerified";
 
     // Defaults
     public static final int DEFAULT_CODE_LENGTH = 6;
     public static final int DEFAULT_TTL = 300;
     public static final int DEFAULT_MAX_RETRIES = 3;
+    public static final boolean DEFAULT_MARK_VERIFIED = true;
 }

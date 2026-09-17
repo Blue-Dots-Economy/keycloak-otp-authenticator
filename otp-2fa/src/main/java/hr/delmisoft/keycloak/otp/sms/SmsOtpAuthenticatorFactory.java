@@ -79,7 +79,21 @@ public class SmsOtpAuthenticatorFactory implements AuthenticatorFactory {
         phoneAttr.setType(ProviderConfigProperty.STRING_TYPE);
         phoneAttr.setDefaultValue(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE);
 
-        return List.of(codeLength, ttl, maxRetries, phoneAttr);
+        ProviderConfigProperty phoneVerifiedAttr = new ProviderConfigProperty();
+        phoneVerifiedAttr.setName(SmsOtpConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE);
+        phoneVerifiedAttr.setLabel("Phone Verified Attribute");
+        phoneVerifiedAttr.setHelpText("User attribute set to \"true\" once the phone number has been proven via OTP.");
+        phoneVerifiedAttr.setType(ProviderConfigProperty.STRING_TYPE);
+        phoneVerifiedAttr.setDefaultValue(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE);
+
+        ProviderConfigProperty markVerified = new ProviderConfigProperty();
+        markVerified.setName(SmsOtpConst.CONFIG_MARK_VERIFIED);
+        markVerified.setLabel("Mark Phone Verified");
+        markVerified.setHelpText("Set the phone verified attribute on the user after a successful OTP.");
+        markVerified.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        markVerified.setDefaultValue(String.valueOf(SmsOtpConst.DEFAULT_MARK_VERIFIED));
+
+        return List.of(codeLength, ttl, maxRetries, phoneAttr, phoneVerifiedAttr, markVerified);
     }
 
     @Override

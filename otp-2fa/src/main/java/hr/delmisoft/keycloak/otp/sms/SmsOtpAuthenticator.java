@@ -14,6 +14,8 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
+import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
+
 public class SmsOtpAuthenticator implements Authenticator {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -83,6 +85,14 @@ public class SmsOtpAuthenticator implements Authenticator {
 
         // Constant-time comparison
         if (MessageDigest.isEqual(storedCode.getBytes(StandardCharsets.UTF_8), enteredOtp.getBytes(StandardCharsets.UTF_8))) {
+            // The user just proved control of the number the code went to — record it, so a
+            // verified number is distinguishable from an unverified one after the login ends.
+            if (getConfigBoolean(context, SmsOtpConst.CONFIG_MARK_VERIFIED, SmsOtpConst.DEFAULT_MARK_VERIFIED)) {
+                OtpVerificationRecorder.markPhoneVerified(context.getUser(),
+                        getConfigString(context, SmsOtpConst.CONFIG_PHONE_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE),
+                        getConfigString(context, SmsOtpConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE),
+                        authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_PHONE));
+            }
             context.success();
         } else {
             authSession.setAuthNote(SmsOtpConst.AUTH_NOTE_ATTEMPTS, String.valueOf(attempts + 1));
@@ -122,6 +132,8 @@ public class SmsOtpAuthenticator implements Authenticator {
         try {
             String message = "Your verification code is: " + code;
             context.getSession().getProvider(SmsProvider.class).send(phoneNumber, message);
+            // Remember the delivery target so verification can only mark that number verified
+            context.getAuthenticationSession().setAuthNote(SmsOtpConst.AUTH_NOTE_PHONE, phoneNumber);
             return true;
         } catch (SmsException e) {
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
@@ -151,6 +163,15 @@ public class SmsOtpAuthenticator implements Authenticator {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    static boolean getConfigBoolean(AuthenticationFlowContext context, String key, boolean defaultValue) {
+        AuthenticatorConfigModel config = context.getAuthenticatorConfig();
+        if (config == null || config.getConfig() == null) {
+            return defaultValue;
+        }
+        String value = config.getConfig().get(key);
+        return (value == null || value.isBlank()) ? defaultValue : Boolean.parseBoolean(value);
     }
 
     static String getConfigString(AuthenticationFlowContext context, String key, String defaultValue) {

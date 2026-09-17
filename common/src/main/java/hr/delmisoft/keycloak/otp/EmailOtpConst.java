@@ -12,16 +12,19 @@ public final class EmailOtpConst {
     public static final String CONFIG_CODE_LENGTH = "emailOtp.codeLength";
     public static final String CONFIG_TTL = "emailOtp.ttl";
     public static final String CONFIG_MAX_RETRIES = "emailOtp.maxRetries";
+    public static final String CONFIG_MARK_VERIFIED = "emailOtp.markVerified";
 
     // Defaults
     public static final int DEFAULT_CODE_LENGTH = 6;
     public static final int DEFAULT_TTL = 300;
     public static final int DEFAULT_MAX_RETRIES = 3;
+    public static final boolean DEFAULT_MARK_VERIFIED = true;
 
     // Auth session note keys (browser flow)
     public static final String AUTH_NOTE_CODE = "emailOtpCode";
     public static final String AUTH_NOTE_EXPIRY = "emailOtpExpiry";
     public static final String AUTH_NOTE_ATTEMPTS = "emailOtpAttempts";
+    public static final String AUTH_NOTE_EMAIL = "emailOtpEmail";
 
     // SingleUseObject note keys (direct grant)
     public static final String NOTE_CODE = "code";

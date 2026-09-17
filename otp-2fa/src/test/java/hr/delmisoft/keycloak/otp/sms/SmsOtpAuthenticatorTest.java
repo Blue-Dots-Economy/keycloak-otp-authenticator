@@ -80,6 +80,7 @@ class SmsOtpAuthenticatorTest {
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_EXPIRY), anyString());
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_ATTEMPTS), eq("0"));
         verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(authSession).setAuthNote(SmsOtpConst.AUTH_NOTE_PHONE, "+1234567890");
         verify(context).challenge(formResponse);
     }
 
@@ -129,6 +130,62 @@ class SmsOtpAuthenticatorTest {
         authenticator.action(context);
 
         verify(context).success();
+    }
+
+    @Test
+    void action_validCode_marksPhoneVerified() {
+        stubValidCodeSubmission("123456");
+        when(context.getUser()).thenReturn(user);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn("+1234567890");
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_PHONE)).thenReturn("+1234567890");
+
+        authenticator.action(context);
+
+        verify(user).setSingleAttribute(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE, "true");
+        verify(context).success();
+    }
+
+    @Test
+    void action_validCode_numberChangedSinceSend_doesNotMarkVerified() {
+        stubValidCodeSubmission("123456");
+        when(context.getUser()).thenReturn(user);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn("+1999999999");
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_PHONE)).thenReturn("+1234567890");
+
+        authenticator.action(context);
+
+        verify(user, never()).setSingleAttribute(eq(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE), anyString());
+        verify(context).success();
+    }
+
+    @Test
+    void action_validCode_markVerifiedDisabled_doesNotMarkPhoneVerified() {
+        stubValidCodeSubmission("123456");
+        when(context.getUser()).thenReturn(user);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn("+1234567890");
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_PHONE)).thenReturn("+1234567890");
+        when(context.getAuthenticatorConfig()).thenReturn(authenticatorConfig);
+        Map<String, String> config = new HashMap<>();
+        config.put(SmsOtpConst.CONFIG_MARK_VERIFIED, "false");
+        when(authenticatorConfig.getConfig()).thenReturn(config);
+
+        authenticator.action(context);
+
+        verify(user, never()).setSingleAttribute(eq(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE), anyString());
+        verify(context).success();
+    }
+
+    private void stubValidCodeSubmission(String code) {
+        MultivaluedMap<String, String> formParams = new MultivaluedHashMap<>();
+        formParams.putSingle(SmsOtpConst.PARAM_OTP, code);
+
+        when(context.getHttpRequest()).thenReturn(httpRequest);
+        when(httpRequest.getDecodedFormParameters()).thenReturn(formParams);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_CODE)).thenReturn(code);
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_EXPIRY)).thenReturn(String.valueOf(Time.currentTime() + 300));
+        when(authSession.getAuthNote(SmsOtpConst.AUTH_NOTE_ATTEMPTS)).thenReturn("0");
     }
 
     @Test

@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
+    <!-- The identifier form deliberately offers a NARROWER requirement set than the
+         inherited constant (no DISABLED) — it is the entry point of every OTP login
+         flow, so disabling it breaks login for the realm. Returning the shared array
+         is the same pattern every Keycloak factory uses; the alternative is cloning
+         a two-element immutable enum array on every admin-console render. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Method name="getRequirementChoices"/>
+        <Class name="hr.delmisoft.keycloak.otp.identifier.IdentifierFormAuthenticatorFactory"/>
+    </Match>
+
     <!-- Authenticator factories use a stateless singleton, which is the standard Keycloak pattern.
          Returning the shared INSTANCE from create() is intentional. -->
     <Match>
@@ -9,6 +20,7 @@
             <Class name="hr.delmisoft.keycloak.otp.EmailOtpAuthenticatorFactory"/>
             <Class name="hr.delmisoft.keycloak.otp.OtpChannelChoiceAuthenticatorFactory"/>
             <Class name="hr.delmisoft.keycloak.otp.sms.SmsOtpAuthenticatorFactory"/>
+            <Class name="hr.delmisoft.keycloak.otp.identifier.IdentifierFormAuthenticatorFactory"/>
         </Or>
     </Match>
 </FindBugsFilter>

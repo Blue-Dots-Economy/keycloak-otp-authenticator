@@ -81,7 +81,21 @@ public class OtpChannelChoiceAuthenticatorFactory implements AuthenticatorFactor
         phoneAttr.setType(ProviderConfigProperty.STRING_TYPE);
         phoneAttr.setDefaultValue(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE);
 
-        return List.of(codeLength, ttl, maxRetries, phoneAttr);
+        ProviderConfigProperty phoneVerifiedAttr = new ProviderConfigProperty();
+        phoneVerifiedAttr.setName(OtpChannelChoiceConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE);
+        phoneVerifiedAttr.setLabel("Phone Verified Attribute");
+        phoneVerifiedAttr.setHelpText("User attribute set to \"true\" once the phone number has been proven via OTP.");
+        phoneVerifiedAttr.setType(ProviderConfigProperty.STRING_TYPE);
+        phoneVerifiedAttr.setDefaultValue(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE);
+
+        ProviderConfigProperty markVerified = new ProviderConfigProperty();
+        markVerified.setName(OtpChannelChoiceConst.CONFIG_MARK_VERIFIED);
+        markVerified.setLabel("Mark Channel Verified");
+        markVerified.setHelpText("After a successful OTP, mark the used channel verified — emailVerified for email, the phone verified attribute for SMS.");
+        markVerified.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        markVerified.setDefaultValue(String.valueOf(OtpChannelChoiceConst.DEFAULT_MARK_VERIFIED));
+
+        return List.of(codeLength, ttl, maxRetries, phoneAttr, phoneVerifiedAttr, markVerified);
     }
 
     @Override

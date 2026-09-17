@@ -12,17 +12,22 @@ public final class SmsOtpConst {
     public static final String CONFIG_TTL = "smsOtp.ttl";
     public static final String CONFIG_MAX_RETRIES = "smsOtp.maxRetries";
     public static final String CONFIG_PHONE_ATTRIBUTE = "smsOtp.phoneAttribute";
+    public static final String CONFIG_PHONE_VERIFIED_ATTRIBUTE = "smsOtp.phoneVerifiedAttribute";
+    public static final String CONFIG_MARK_VERIFIED = "smsOtp.markVerified";
 
     // Defaults
     public static final int DEFAULT_CODE_LENGTH = 6;
     public static final int DEFAULT_TTL = 300;
     public static final int DEFAULT_MAX_RETRIES = 3;
     public static final String DEFAULT_PHONE_ATTRIBUTE = "phoneNumber";
+    public static final String DEFAULT_PHONE_VERIFIED_ATTRIBUTE = "phoneNumberVerified";
+    public static final boolean DEFAULT_MARK_VERIFIED = true;
 
     // Auth session note keys (browser flow)
     public static final String AUTH_NOTE_CODE = "smsOtpCode";
     public static final String AUTH_NOTE_EXPIRY = "smsOtpExpiry";
     public static final String AUTH_NOTE_ATTEMPTS = "smsOtpAttempts";
+    public static final String AUTH_NOTE_PHONE = "smsOtpPhone";
 
     // SingleUseObject note keys (direct grant)
     public static final String NOTE_CODE = "code";

@@ -104,6 +104,7 @@ All authenticators are configurable through the Keycloak admin console under the
 | `emailOtp.codeLength` | Code Length | `6` | Number of digits in the OTP code |
 | `emailOtp.ttl` | Code TTL (seconds) | `300` | Time-to-live for the OTP code |
 | `emailOtp.maxRetries` | Max Retries | `3` | Max failed attempts before invalidation |
+| `emailOtp.markVerified` | Mark Email Verified | `true` | Set the user's `emailVerified` flag after a successful OTP |
 
 ### SMS OTP
 
@@ -113,6 +114,8 @@ All authenticators are configurable through the Keycloak admin console under the
 | `smsOtp.ttl` | Code TTL (seconds) | `300` | Time-to-live for the OTP code |
 | `smsOtp.maxRetries` | Max Retries | `3` | Max failed attempts before invalidation |
 | `smsOtp.phoneAttribute` | Phone Number Attribute | `phoneNumber` | User attribute storing the phone number |
+| `smsOtp.phoneVerifiedAttribute` | Phone Verified Attribute | `phoneNumberVerified` | User attribute set to `"true"` after a successful OTP |
+| `smsOtp.markVerified` | Mark Phone Verified | `true` | Whether to set the phone verified attribute after a successful OTP |
 
 ## Setup: Browser Flow
 
@@ -237,6 +240,28 @@ browser-otp-choice-forms           (ALTERNATIVE)
 | `otpChoice.ttl` | Code TTL (seconds) | `300` | Time-to-live for the OTP code |
 | `otpChoice.maxRetries` | Max Retries | `3` | Max failed attempts before invalidation |
 | `otpChoice.phoneAttribute` | Phone Number Attribute | `phoneNumber` | User attribute storing the phone number |
+| `otpChoice.phoneVerifiedAttribute` | Phone Verified Attribute | `phoneNumberVerified` | User attribute set to `"true"` after a successful SMS OTP |
+| `otpChoice.markVerified` | Mark Channel Verified | `true` | Mark the used channel verified after a successful OTP |
+
+## Verification Recording
+
+A completed OTP is proof that the user controls the address or number the code went to, so the
+result is written back to the user profile (all four authenticators plus both direct-grant types):
+
+| Channel | What is written | Where it shows up |
+|---|---|---|
+| Email | Keycloak's built-in `emailVerified` flag | `email_verified` claim in ID / access tokens |
+| SMS | User attribute `phoneNumberVerified` = `"true"` | add a **User Attribute** protocol mapper to expose it as `phone_number_verified` |
+
+Details:
+
+- The delivery target is captured when the code is sent (auth note for browser flows, single-use
+  object note for direct grants). If the profile's email / phone changed between send and verify,
+  the flag is **not** set — the proof no longer applies to what the profile holds.
+- Already-verified users are not re-written, so a repeat login is not a DB write.
+- Disable per authenticator with `emailOtp.markVerified` / `smsOtp.markVerified` /
+  `otpChoice.markVerified`. The direct-grant types (`urn:otp:email`, `urn:otp:sms`) always record.
+- The demo realm ships a `phone_number_verified` mapper on both clients as a reference.
 
 ## Email Configuration
 
@@ -244,19 +269,189 @@ Email OTP uses Keycloak's built-in email provider. Configure SMTP settings in th
 
 ## SMS Provider SPI
 
-SMS sending is pluggable via a custom SPI. The plugin ships with a **log** provider (`LogSmsSenderFactory`) that logs SMS messages to the Keycloak server log instead of sending them — useful for development and testing.
+SMS sending is pluggable via a custom SPI. Five providers ship with the plugin out of the box:
 
-### Using the Log Provider
+| Provider id | Class | Use case |
+|---|---|---|
+| `log`    | `LogSmsSenderFactory`   | Default. Writes the OTP to Keycloak's stdout. Dev / E2E only. |
+| `http`   | `HttpSmsProviderFactory`   | **Preferred for Blue Dots.** Hands the OTP to notification-service, which owns the vendor. |
+| `twilio` | `TwilioSmsProviderFactory` | Sends via Twilio Programmable Messaging. |
+| `sns`    | `SnsSmsProviderFactory`    | Sends via Amazon SNS Publish (region-scoped). |
+| `msg91`  | `Msg91SmsProviderFactory`  | Sends via MSG91 Flow API (DLT-compliant for India). |
 
-The log provider is active by default. OTP codes will appear in the Keycloak server log:
+Switching providers is a one-env-var change — the active provider is selected via Keycloak's standard SPI configuration mechanism (`KC_SPI_SMS_PROVIDER` env var or `--spi-sms-provider` flag). No code change or rebuild required.
+
+### Using the Log Provider (default)
+
+The log provider is active by default. OTP codes appear in the Keycloak server log:
 
 ```
 INFO  [hr.delmisoft.keycloak.otp.sms.LogSmsSenderFactory] SMS to +1234567890: Your verification code is: 123456
 ```
 
+### Using the Twilio Provider
+
+Set the provider id and supply Twilio credentials:
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_SMS_PROVIDER: twilio
+  TWILIO_ACCOUNT_SID:  ${TWILIO_ACCOUNT_SID}
+  TWILIO_AUTH_TOKEN:   ${TWILIO_AUTH_TOKEN}
+  TWILIO_FROM_NUMBER:  ${TWILIO_FROM_NUMBER}
+```
+
+Equivalent CLI flags for non-Compose deployments:
+
+```bash
+/opt/keycloak/bin/kc.sh start \
+  --spi-sms-provider=twilio \
+  --spi-sms-twilio-account-sid="$TWILIO_ACCOUNT_SID" \
+  --spi-sms-twilio-auth-token="$TWILIO_AUTH_TOKEN" \
+  --spi-sms-twilio-from-number="$TWILIO_FROM_NUMBER"
+```
+
+The Twilio provider has zero extra runtime dependencies — it uses JDK 17's `java.net.http.HttpClient` to call the Twilio REST API directly.
+
+### Using the Amazon SNS Provider
+
+Set the provider id and supply AWS credentials (or rely on the default credential chain):
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_SMS_PROVIDER: sns
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  AWS_REGION: ap-south-1
+  AWS_SNS_SENDER_ID: BLUEDOTS         # optional, alphanumeric, country-dependent
+  AWS_SNS_SMS_TYPE:  Transactional    # default; "Promotional" also valid
+```
+
+Equivalent CLI flags:
+
+```bash
+/opt/keycloak/bin/kc.sh start \
+  --spi-sms-provider=sns \
+  --spi-sms-sns-access-key-id="$AWS_ACCESS_KEY_ID" \
+  --spi-sms-sns-secret-access-key="$AWS_SECRET_ACCESS_KEY" \
+  --spi-sms-sns-region=ap-south-1 \
+  --spi-sms-sns-sender-id=BLUEDOTS \
+  --spi-sms-sns-sms-type=Transactional
+```
+
+If `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` are not set, the AWS SDK falls back to its **default credential chain** — env, ECS task role, EC2 instance profile, then `~/.aws/credentials`. This is the preferred path for production on EKS with IRSA (IAM Roles for Service Accounts) so static keys never touch the runtime.
+
+The SNS provider depends on `software.amazon.awssdk:sns` (~5 MB shaded into the fat JAR). If you don't intend to use SNS, leave `KC_SPI_SMS_PROVIDER` set to `log` or `twilio` — the SDK code is on classpath but never loaded.
+
+### Using the MSG91 Provider
+
+MSG91's **Flow API** is template-based and DLT-compliant — the preferred path for Indian carriers. Pre-register an OTP template in the MSG91 dashboard with an OTP variable placeholder (default name `var`), then wire the credentials:
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_SMS_PROVIDER:  msg91
+  MSG91_AUTH_KEY:       ${MSG91_AUTH_KEY}        # required
+  MSG91_TEMPLATE_ID:    ${MSG91_TEMPLATE_ID}     # required — DLT-approved Flow template id
+  MSG91_SENDER_ID:      ${MSG91_SENDER_ID}       # optional; falls back to sender id set on the template
+  MSG91_OTP_VAR_NAME:   var                      # template variable receiving the code (default: var)
+```
+
+Equivalent CLI flags:
+
+```bash
+/opt/keycloak/bin/kc.sh start \
+  --spi-sms-provider=msg91 \
+  --spi-sms-msg91-auth-key="$MSG91_AUTH_KEY" \
+  --spi-sms-msg91-template-id="$MSG91_TEMPLATE_ID" \
+  --spi-sms-msg91-sender-id="$MSG91_SENDER_ID" \
+  --spi-sms-msg91-otp-var-name=var
+```
+
+The provider extracts the numeric OTP from the outbound SMS body (`"Your verification code is: 123456"`) and posts it under `MSG91_OTP_VAR_NAME` to the configured Flow template — keep the template body using the same variable name. Like Twilio, MSG91 uses JDK 17's `HttpClient` directly with zero extra runtime dependencies.
+
+### Using the HTTP Provider (notification-service)
+
+Every other provider here teaches Keycloak the name of one vendor. Adding the next one
+then costs a Java change, a jar rebuild, a Keycloak image build, an image tag pin and a
+chart change — repeated per vendor, forever.
+
+`http` pays that once. It posts the OTP to the Blue Dots **notification-service**, which
+owns the vendor selection, so a new SMS vendor becomes a change in one service and nothing
+here moves. It also removes a duplicated setting: with `msg91` the login-OTP template id is
+configured both here and in notification-service, whereas here the template is only *named*
+and the notification service owns its vendor-side id and its text.
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_SMS_PROVIDER:     http
+  SMS_HTTP_URL:            http://notification-service:3000/notify   # required
+  SMS_HTTP_SECRET:         ${SMS_HTTP_SECRET}                        # required, HMAC shared secret
+  SMS_HTTP_KEY_ID:         keycloak                                  # default: keycloak
+  SMS_HTTP_TEMPLATE_ID:    login_otp                                 # default: login_otp
+  SMS_HTTP_OTP_VAR_NAME:   message                                   # default: message
+  SMS_HTTP_TIMEOUT_MS:     5000                                      # default: 5000
+```
+
+Equivalent CLI flags:
+
+```bash
+/opt/keycloak/bin/kc.sh start \
+  --spi-sms-provider=http \
+  --spi-sms-http-url="$SMS_HTTP_URL" \
+  --spi-sms-http-secret="$SMS_HTTP_SECRET" \
+  --spi-sms-http-key-id=keycloak \
+  --spi-sms-http-template-id=login_otp \
+  --spi-sms-http-otp-var-name=message \
+  --spi-sms-http-timeout-ms=5000
+```
+
+`SMS_HTTP_KEY_ID` must name an entry in notification-service's `internal-secrets.json`, and
+`SMS_HTTP_SECRET` must be that entry's secret. Requests carry notification-service's HMAC
+envelope — `X-NS-Key`, `X-NS-Timestamp`, `X-NS-Nonce` and
+`X-NS-Signature: v1=<hmac_sha256>` over `METHOD\nPATH\nTIMESTAMP\nNONCE`. The timestamp is
+checked against a ±30s window and the nonce is single-use for 60s, so server clock skew
+shows up as `401 Request expired`.
+
+**Only the code is sent, not the rendered text:**
+
+```json
+{"channel":"sms","to":"+919999999999","template_id":"login_otp",
+ "priority":"realtime","variables":{"message":"123456"}}
+```
+
+That is deliberate. Under Indian DLT rules the delivered text must match the template
+registered with the operator, so the authoritative copy is the one notification-service
+holds. The provider extracts the numeric code from the outbound body the same way the MSG91
+provider does.
+
+The body it discards is the Java literal `"Your verification code is: " + code` built in
+`SmsOtpAuthenticator` / `SmsOtpGrantType` — nothing in `themes/` produces it. Worth knowing
+before localising that string: `extractOtp` scans for the first run of 4-10 digits, so a
+digit introduced ahead of the code would be sent as the OTP.
+
+Two behaviours worth knowing:
+
+- **Login gains a hard dependency on notification-service** being reachable. The timeout
+  defaults to 5s and a non-positive value is rejected, because this call sits inside an
+  interactive login and "wait forever" is worse than any misconfiguration it could mask.
+- **A `409` is treated as sent.** notification-service suppresses an identical payload inside
+  its dedupe window. Every login mints a fresh code, so an identical payload means this exact
+  OTP is already on its way; failing here would show the user an error for a code they are
+  about to receive. This holds only while NS's dedupe key covers message *content* — it does
+  today (the fallback key hashes the whole payload), but the key used to be
+  `channel:to:template_id`, under which two different codes to one recipient would collide
+  and this branch would report success for a dropped OTP.
+- **A malformed `SMS_HTTP_URL` is caught at startup**, logged with the offending value, and
+  turns every send into a clean `SmsException` naming the config key — rather than an
+  unchecked `IllegalArgumentException` escaping into Keycloak's generic error page.
+
 ### Implementing a Custom SMS Provider
 
-To integrate with a real SMS gateway (e.g., Twilio, AWS SNS), implement two interfaces:
+To integrate with another SMS gateway (Vonage, Plivo, Karix, etc.), implement two interfaces:
 
 1. **`SmsProvider`** — the send logic:
 

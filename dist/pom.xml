@@ -7,7 +7,7 @@
     <parent>
         <groupId>hr.delmisoft.keycloak</groupId>
         <artifactId>keycloak-otp-parent</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.2.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>keycloak-otp</artifactId>
@@ -54,8 +54,40 @@
                             <artifactSet>
                                 <includes>
                                     <include>hr.delmisoft.keycloak:*</include>
+                                    <!-- Bundle the AWS SDK + its transitive deps so the
+                                         SNS provider can run without extra jars in
+                                         /opt/keycloak/providers/. Excludes Netty's
+                                         async transports (we use the URL connection
+                                         HTTP client only) to keep the shaded jar slim. -->
+                                    <include>software.amazon.awssdk:*</include>
+                                    <include>software.amazon.eventstream:*</include>
+                                    <include>org.reactivestreams:*</include>
+                                    <include>com.fasterxml.jackson.core:*</include>
+                                    <include>org.apache.httpcomponents:*</include>
+                                    <!-- Phone number parsing/normalization. -->
+                                    <include>com.googlecode.libphonenumber:libphonenumber</include>
                                 </includes>
+                                <excludes>
+                                    <!-- Netty pulls ~10MB of native bindings we don't
+                                         need; the SDK falls back to the URL connection
+                                         HTTP client when Netty isn't on the classpath. -->
+                                    <exclude>software.amazon.awssdk:netty-nio-client</exclude>
+                                    <exclude>io.netty:*</exclude>
+                                </excludes>
                             </artifactSet>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <!-- Stop signed-jar verification failures
+                                             when relocating into a fat jar. -->
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>

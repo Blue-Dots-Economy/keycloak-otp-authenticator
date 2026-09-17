@@ -7,6 +7,7 @@ import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.models.UserModel;
 
 import hr.delmisoft.keycloak.otp.EmailOtpConst;
+import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
 
 /**
  * Custom OAuth2 grant type for Email OTP authentication.
@@ -24,12 +25,18 @@ import hr.delmisoft.keycloak.otp.EmailOtpConst;
 public class EmailOtpGrantType extends AbstractOtpGrantType {
 
     @Override
-    protected void sendOtp(UserModel user, String code) throws Exception {
+    protected String sendOtp(UserModel user, String code) throws Exception {
         session.getProvider(EmailTemplateProvider.class)
                 .setRealm(realm)
                 .setUser(user)
                 .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE,
                         new HashMap<>(Map.of("code", code)));
+        return user.getEmail();
+    }
+
+    @Override
+    protected void markChannelVerified(UserModel user, String target) {
+        OtpVerificationRecorder.markEmailVerified(user, target);
     }
 
     @Override

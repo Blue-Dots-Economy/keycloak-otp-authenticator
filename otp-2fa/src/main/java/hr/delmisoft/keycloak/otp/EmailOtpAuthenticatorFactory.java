@@ -72,7 +72,14 @@ public class EmailOtpAuthenticatorFactory implements AuthenticatorFactory {
         maxRetries.setType(ProviderConfigProperty.STRING_TYPE);
         maxRetries.setDefaultValue(String.valueOf(EmailOtpConst.DEFAULT_MAX_RETRIES));
 
-        return List.of(codeLength, ttl, maxRetries);
+        ProviderConfigProperty markVerified = new ProviderConfigProperty();
+        markVerified.setName(EmailOtpConst.CONFIG_MARK_VERIFIED);
+        markVerified.setLabel("Mark Email Verified");
+        markVerified.setHelpText("Set the user's emailVerified flag after a successful OTP, so issued tokens carry email_verified=true.");
+        markVerified.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        markVerified.setDefaultValue(String.valueOf(EmailOtpConst.DEFAULT_MARK_VERIFIED));
+
+        return List.of(codeLength, ttl, maxRetries, markVerified);
     }
 
     @Override

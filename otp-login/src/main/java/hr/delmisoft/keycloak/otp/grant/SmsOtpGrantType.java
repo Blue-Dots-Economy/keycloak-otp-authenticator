@@ -4,6 +4,7 @@ import org.keycloak.models.UserModel;
 
 import hr.delmisoft.keycloak.otp.sms.SmsOtpConst;
 import hr.delmisoft.keycloak.otp.sms.SmsProvider;
+import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
 
 /**
  * Custom OAuth2 grant type for SMS OTP authentication.
@@ -21,13 +22,22 @@ import hr.delmisoft.keycloak.otp.sms.SmsProvider;
 public class SmsOtpGrantType extends AbstractOtpGrantType {
 
     @Override
-    protected void sendOtp(UserModel user, String code) throws Exception {
+    protected String sendOtp(UserModel user, String code) throws Exception {
         String phoneNumber = user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE);
         if (phoneNumber == null || phoneNumber.isBlank()) {
             throw new IllegalStateException("User has no phone number configured");
         }
         String message = "Your verification code is: " + code;
         session.getProvider(SmsProvider.class).send(phoneNumber, message);
+        return phoneNumber;
+    }
+
+    @Override
+    protected void markChannelVerified(UserModel user, String target) {
+        OtpVerificationRecorder.markPhoneVerified(user,
+                SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE,
+                SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE,
+                target);
     }
 
     @Override

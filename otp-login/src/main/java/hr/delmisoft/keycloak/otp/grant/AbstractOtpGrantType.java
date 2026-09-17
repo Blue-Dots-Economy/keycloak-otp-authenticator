@@ -45,6 +45,7 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
     static final String NOTE_CODE = "code";
     static final String NOTE_USER_ID = "userId";
     static final String NOTE_ATTEMPTS = "attempts";
+    static final String NOTE_TARGET = "target";
 
     static final int DEFAULT_CODE_LENGTH = 6;
     static final int DEFAULT_TTL = 300;
@@ -126,17 +127,23 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
         notes.put(NOTE_ATTEMPTS, "0");
 
         SingleUseObjectProvider store = session.getProvider(SingleUseObjectProvider.class);
-        store.put(sessionId, DEFAULT_TTL, notes);
 
+        String target;
         try {
-            sendOtp(user, code);
+            target = sendOtp(user, code);
         } catch (Exception e) {
             LOG.error("Failed to send OTP", e);
-            store.remove(sessionId);
             event.error(Errors.EMAIL_SEND_FAILED);
             throw new CorsErrorResponseException(cors, "otp_send_failed",
                     "Failed to send OTP", Response.Status.INTERNAL_SERVER_ERROR);
         }
+
+        // Delivery target is bound to the session so phase 2 can only mark that address /
+        // number verified, even if the profile changes in between
+        if (target != null && !target.isBlank()) {
+            notes.put(NOTE_TARGET, target);
+        }
+        store.put(sessionId, DEFAULT_TTL, notes);
 
         Map<String, Object> body = new HashMap<>();
         body.put("error", getOtpRequiredError());
@@ -206,8 +213,9 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
                     "Invalid OTP code", Response.Status.UNAUTHORIZED);
         }
 
-        // OTP valid — consume session and generate tokens
+        // OTP valid — consume session, record the proven channel, generate tokens
         store.remove(otpSessionId);
+        markChannelVerified(user, notes.get(NOTE_TARGET));
         return generateTokenResponse(user, scope);
     }
 
@@ -265,8 +273,21 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
 
     // Template methods for subclasses
 
-    /** Send the OTP code to the user (email or SMS). */
-    protected abstract void sendOtp(UserModel user, String code) throws Exception;
+    /**
+     * Send the OTP code to the user (email or SMS).
+     *
+     * @return the delivery target (email address or phone number) the code was sent to
+     */
+    protected abstract String sendOtp(UserModel user, String code) throws Exception;
+
+    /**
+     * Record on the user profile that control of {@code target} was proven. Without this,
+     * {@code email_verified} / the phone-verified attribute stay false in every token
+     * even though the user just completed an OTP.
+     *
+     * @param target delivery target captured in phase 1; null when it was not recorded
+     */
+    protected abstract void markChannelVerified(UserModel user, String target);
 
     /** Error code returned in phase 1 response (e.g. "email_otp_required"). */
     protected abstract String getOtpRequiredError();
