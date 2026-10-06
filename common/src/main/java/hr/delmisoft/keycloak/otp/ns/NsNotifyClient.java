@@ -60,7 +60,9 @@ public final class NsNotifyClient {
         String keyId = readConfigOrDefault(config, "key-id", "SMS_HTTP_KEY_ID", DEFAULT_KEY_ID);
         long timeoutMs = parseTimeout(readConfig(config, "timeout-ms", "SMS_HTTP_TIMEOUT_MS"));
         if (url == null || url.isBlank() || secret == null || secret.isBlank()) {
-            LOG.warn("notification-service client not fully configured. Set SMS_HTTP_URL and SMS_HTTP_SECRET "
+            // Every factory builds a client at boot, including on clusters that use another provider;
+            // an 'http' provider that is actually selected reports the missing settings when it sends.
+            LOG.debug("notification-service client not fully configured. Set SMS_HTTP_URL and SMS_HTTP_SECRET "
                     + "(or the equivalent SPI config) before activating an 'http' provider.");
         }
         HttpClient http = HttpClient.newBuilder()

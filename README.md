@@ -32,7 +32,7 @@ mvn clean package
 ```
 
 Produces a single deployable JAR:
-- `dist/target/keycloak-otp-1.0.0-SNAPSHOT.jar`
+- `dist/target/keycloak-otp-*.jar`
 
 Or download a pre-built JAR from [GitHub Releases](https://github.com/arados/keycloak-otp/releases).
 
@@ -41,7 +41,7 @@ Or download a pre-built JAR from [GitHub Releases](https://github.com/arados/key
 Copy the single JAR into Keycloak's `providers/` directory:
 
 ```bash
-cp dist/target/keycloak-otp-1.0.0-SNAPSHOT.jar /opt/keycloak/providers/
+cp dist/target/keycloak-otp-*.jar /opt/keycloak/providers/
 ```
 
 Then rebuild Keycloak (required after adding providers):
@@ -470,13 +470,13 @@ Equivalent CLI flags:
 
 ```bash
 /opt/keycloak/bin/kc.sh start \
-  --spi-sms-provider=http \
-  --spi-sms-http-url="$SMS_HTTP_URL" \
-  --spi-sms-http-secret="$SMS_HTTP_SECRET" \
-  --spi-sms-http-key-id=keycloak \
-  --spi-sms-http-template-id=login_otp \
-  --spi-sms-http-otp-var-name=message \
-  --spi-sms-http-timeout-ms=5000
+  --spi-sms--provider=http \
+  --spi-sms--http--url="$SMS_HTTP_URL" \
+  --spi-sms--http--secret="$SMS_HTTP_SECRET" \
+  --spi-sms--http--key-id=keycloak \
+  --spi-sms--http--template-id=login_otp \
+  --spi-sms--http--otp-var-name=message \
+  --spi-sms--http--timeout-ms=5000
 ```
 
 `SMS_HTTP_KEY_ID` must name an entry in notification-service's `internal-secrets.json`, and
