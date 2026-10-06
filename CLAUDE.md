@@ -59,7 +59,10 @@ themes (no Java dependencies)
 - `EmailOtpConst` / `SmsOtpConst` — constants (provider IDs, config keys, defaults, auth note keys, error codes)
 - Custom SMS SPI: `SmsProvider` / `SmsProviderFactory` / `SmsSpi` with `LogSmsSenderFactory` default
 - SMS providers: `log`, `http`, `twilio`, `sns`, `msg91`, selected at runtime by `KC_SPI_SMS_PROVIDER`
-- SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`
+- Custom email SPI `otp-email`: `OtpEmailSender` / `OtpEmailSenderFactory` / `OtpEmailSenderSpi`, selected by `KC_SPI_OTP_EMAIL_PROVIDER`.
+  `smtp` (`SmtpOtpEmailSenderFactory`, `order()` 100, the default) sends the theme template `email-otp-code.ftl` through Keycloak SMTP.
+  Every email OTP call site (`EmailOtpAuthenticator`, `OtpChannelChoiceAuthenticator`, `EmailOtpGrantType`) goes through `OtpEmailSender`.
+- SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`, `hr.delmisoft.keycloak.otp.email.OtpEmailSenderFactory`
 
 **Prefer `http` (`HttpSmsProviderFactory`) for new vendors.** Every other provider hardcodes
 one vendor, so each new one costs a Java change → jar rebuild → Keycloak image → tag pin →

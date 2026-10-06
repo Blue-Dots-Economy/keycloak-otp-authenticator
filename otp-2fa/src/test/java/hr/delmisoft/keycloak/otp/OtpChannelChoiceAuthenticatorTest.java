@@ -7,14 +7,14 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 
+import hr.delmisoft.keycloak.otp.email.OtpEmailException;
+import hr.delmisoft.keycloak.otp.email.OtpEmailSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.common.util.Time;
-import org.keycloak.email.EmailException;
-import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.http.HttpRequest;
 import org.keycloak.models.AuthenticatorConfigModel;
@@ -40,6 +40,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,7 +57,7 @@ class OtpChannelChoiceAuthenticatorTest {
     @Mock private RealmModel realm;
     @Mock private UserModel user;
     @Mock private AuthenticationSessionModel authSession;
-    @Mock private EmailTemplateProvider emailProvider;
+    @Mock private OtpEmailSender emailSender;
     @Mock private SmsProvider smsProvider;
     @Mock private LoginFormsProvider form;
     @Mock private HttpRequest httpRequest;
@@ -74,9 +75,7 @@ class OtpChannelChoiceAuthenticatorTest {
         when(context.getUser()).thenReturn(user);
         when(context.getAuthenticationSession()).thenReturn(authSession);
         when(context.getAuthenticatorConfig()).thenReturn(null);
-        when(session.getProvider(EmailTemplateProvider.class)).thenReturn(emailProvider);
-        when(emailProvider.setRealm(any())).thenReturn(emailProvider);
-        when(emailProvider.setUser(any())).thenReturn(emailProvider);
+        when(session.getProvider(OtpEmailSender.class)).thenReturn(emailSender);
         when(session.getProvider(SmsProvider.class)).thenReturn(smsProvider);
         when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn("+1234567890");
     }
@@ -111,7 +110,7 @@ class OtpChannelChoiceAuthenticatorTest {
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CODE), anyString());
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_EXPIRY), anyString());
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_ATTEMPTS), eq("0"));
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).challenge(formResponse);
     }
 
@@ -159,11 +158,30 @@ class OtpChannelChoiceAuthenticatorTest {
         when(context.form()).thenReturn(form);
         when(form.setError(anyString())).thenReturn(form);
         when(form.createErrorPage(any())).thenReturn(formResponse);
-        doThrow(new EmailException("fail")).when(emailProvider).send(anyString(), anyString(), any());
+        doThrow(new OtpEmailException("x")).when(emailSender).send(any(), any(), anyString());
 
         authenticator.action(context);
 
+        verify(form).setError("emailSendError");
         verify(context).failureChallenge(eq(AuthenticationFlowError.INTERNAL_ERROR), any());
+        verify(authSession, never()).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_TARGET), any());
+    }
+
+    @Test
+    void action_selectEmail_successRecordsUserEmailAsTarget() throws Exception {
+        setupCommonMocks();
+        when(user.getEmail()).thenReturn("user@example.com");
+        MultivaluedMap<String, String> formParams = new MultivaluedHashMap<>();
+        formParams.putSingle(OtpChannelChoiceAuthenticator.PARAM_CHANNEL, "email");
+        when(context.getHttpRequest()).thenReturn(httpRequest);
+        when(httpRequest.getDecodedFormParameters()).thenReturn(formParams);
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verifyEmailSentWithStoredCode();
+        verify(authSession).setAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_TARGET, "user@example.com");
     }
 
     @Test
@@ -354,7 +372,7 @@ class OtpChannelChoiceAuthenticatorTest {
 
         authenticator.action(context);
 
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).failureChallenge(eq(AuthenticationFlowError.EXPIRED_CODE), any());
     }
 
@@ -468,7 +486,7 @@ class OtpChannelChoiceAuthenticatorTest {
         verify(authSession).removeAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_EXPIRY);
         verify(authSession).removeAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_ATTEMPTS);
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("email"));
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).challenge(formResponse);
     }
 
@@ -553,7 +571,7 @@ class OtpChannelChoiceAuthenticatorTest {
         authenticator.authenticate(context);
 
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("email"));
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).challenge(formResponse);
         verify(form, never()).createForm(OtpChannelChoiceAuthenticator.TEMPLATE_CHANNEL_SELECT);
     }
@@ -597,7 +615,14 @@ class OtpChannelChoiceAuthenticatorTest {
 
         authenticator.authenticate(context);
 
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).challenge(formResponse);
+    }
+
+    /** The sender received this realm, this user and exactly the code stored in the auth session. */
+    private void verifyEmailSentWithStoredCode() throws Exception {
+        ArgumentCaptor<String> stored = ArgumentCaptor.forClass(String.class);
+        verify(authSession, atLeastOnce()).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CODE), stored.capture());
+        verify(emailSender).send(realm, user, stored.getValue());
     }
 }

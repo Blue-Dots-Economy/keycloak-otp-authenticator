@@ -7,14 +7,14 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 
+import hr.delmisoft.keycloak.otp.email.OtpEmailException;
+import hr.delmisoft.keycloak.otp.email.OtpEmailSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.common.util.Time;
-import org.keycloak.email.EmailException;
-import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.http.HttpRequest;
 import org.keycloak.models.AuthenticatorConfigModel;
@@ -34,6 +34,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -50,7 +51,7 @@ class EmailOtpAuthenticatorTest {
     @Mock private RealmModel realm;
     @Mock private UserModel user;
     @Mock private AuthenticationSessionModel authSession;
-    @Mock private EmailTemplateProvider emailProvider;
+    @Mock private OtpEmailSender emailSender;
     @Mock private LoginFormsProvider form;
     @Mock private HttpRequest httpRequest;
     @Mock private AuthenticatorConfigModel authenticatorConfig;
@@ -67,9 +68,7 @@ class EmailOtpAuthenticatorTest {
         when(context.getUser()).thenReturn(user);
         when(context.getAuthenticationSession()).thenReturn(authSession);
         when(context.getAuthenticatorConfig()).thenReturn(null);
-        when(session.getProvider(EmailTemplateProvider.class)).thenReturn(emailProvider);
-        when(emailProvider.setRealm(any())).thenReturn(emailProvider);
-        when(emailProvider.setUser(any())).thenReturn(emailProvider);
+        when(session.getProvider(OtpEmailSender.class)).thenReturn(emailSender);
     }
 
     @Test
@@ -86,7 +85,7 @@ class EmailOtpAuthenticatorTest {
         verify(authSession).setAuthNote(eq(EmailOtpConst.AUTH_NOTE_ATTEMPTS), eq("0"));
 
         // Verify email was sent
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
 
         // Verify the delivery target was recorded for later verification marking
         verify(authSession).setAuthNote(eq(EmailOtpConst.AUTH_NOTE_EMAIL), any());
@@ -101,12 +100,27 @@ class EmailOtpAuthenticatorTest {
         when(context.form()).thenReturn(form);
         when(form.setError(anyString())).thenReturn(form);
         when(form.createErrorPage(any())).thenReturn(formResponse);
-        doThrow(new EmailException("fail")).when(emailProvider).send(anyString(), anyString(), any());
+        doThrow(new OtpEmailException("x")).when(emailSender).send(any(), any(), anyString());
 
         authenticator.authenticate(context);
 
+        verify(form).setError("emailSendError");
         verify(context).failureChallenge(eq(AuthenticationFlowError.INTERNAL_ERROR), any());
         verify(context, never()).challenge(any());
+        verify(authSession, never()).setAuthNote(eq(EmailOtpConst.AUTH_NOTE_EMAIL), any());
+    }
+
+    @Test
+    void authenticate_successRecordsUserEmailAsTarget() throws Exception {
+        setupCommonMocks();
+        when(user.getEmail()).thenReturn("user@example.com");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.authenticate(context);
+
+        verifyEmailSentWithStoredCode();
+        verify(authSession).setAuthNote(EmailOtpConst.AUTH_NOTE_EMAIL, "user@example.com");
     }
 
     @Test
@@ -247,7 +261,7 @@ class EmailOtpAuthenticatorTest {
         ArgumentCaptor<String> codeCaptor = ArgumentCaptor.forClass(String.class);
         verify(authSession).setAuthNote(eq(EmailOtpConst.AUTH_NOTE_CODE), codeCaptor.capture());
         assertThat(codeCaptor.getValue(), notNullValue());
-        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verifyEmailSentWithStoredCode();
         verify(context).failureChallenge(eq(AuthenticationFlowError.EXPIRED_CODE), any());
     }
 
@@ -306,5 +320,12 @@ class EmailOtpAuthenticatorTest {
     void configuredFor_userWithoutEmail_returnsFalse() {
         when(user.getEmail()).thenReturn(null);
         assertThat(authenticator.configuredFor(session, realm, user), equalTo(false));
+    }
+
+    /** The sender received this realm, this user and exactly the code stored in the auth session. */
+    private void verifyEmailSentWithStoredCode() throws Exception {
+        ArgumentCaptor<String> stored = ArgumentCaptor.forClass(String.class);
+        verify(authSession, atLeastOnce()).setAuthNote(eq(EmailOtpConst.AUTH_NOTE_CODE), stored.capture());
+        verify(emailSender).send(realm, user, stored.getValue());
     }
 }

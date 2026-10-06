@@ -3,15 +3,11 @@ package hr.delmisoft.keycloak.otp;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.common.util.Time;
-import org.keycloak.email.EmailException;
-import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -20,6 +16,8 @@ import org.keycloak.sessions.AuthenticationSessionModel;
 
 import org.jboss.logging.Logger;
 
+import hr.delmisoft.keycloak.otp.email.OtpEmailException;
+import hr.delmisoft.keycloak.otp.email.OtpEmailSender;
 import hr.delmisoft.keycloak.otp.identifier.IdentifierFormConst;
 import hr.delmisoft.keycloak.otp.identifier.IdentifierUtil;
 import hr.delmisoft.keycloak.otp.sms.SmsException;
@@ -251,14 +249,12 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
 
     private boolean sendEmail(AuthenticationFlowContext context, String code) {
         try {
-            context.getSession().getProvider(EmailTemplateProvider.class)
-                    .setRealm(context.getRealm())
-                    .setUser(context.getUser())
-                    .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE, new HashMap<>(Map.of("code", code)));
+            context.getSession().getProvider(OtpEmailSender.class)
+                    .send(context.getRealm(), context.getUser(), code);
             // Remember the delivery target so verification can only mark that address verified
             context.getAuthenticationSession().setAuthNote(AUTH_NOTE_TARGET, context.getUser().getEmail());
             return true;
-        } catch (EmailException e) {
+        } catch (OtpEmailException e) {
             LOG.error("Failed to send OTP email", e);
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
                     context.form().setError("emailSendError")
