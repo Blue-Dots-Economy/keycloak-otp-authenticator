@@ -255,7 +255,9 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
             context.getAuthenticationSession().setAuthNote(AUTH_NOTE_TARGET, context.getUser().getEmail());
             return true;
         } catch (OtpEmailException e) {
-            LOG.error("Failed to send OTP email", e);
+            // The cause chain can name the recipient (e.g. a mail server rejecting an address), so log types only
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            LOG.errorf("OTP email not sent: transport=%s error=%s", e.transport(), cause.getClass().getSimpleName());
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
                     context.form().setError("emailSendError")
                             .createErrorPage(jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR));

@@ -70,6 +70,7 @@ class SmtpOtpEmailSenderFactoryTest {
         OtpEmailException e = assertThrows(OtpEmailException.class,
                 () -> new SmtpOtpEmailSenderFactory().create(session).send(realm, user, "123456"));
         assertThat(e.getCause(), sameInstance(cause));
+        assertThat(e.transport(), equalTo("smtp"));
         assertThat(e, instanceOf(Exception.class));
     }
 }

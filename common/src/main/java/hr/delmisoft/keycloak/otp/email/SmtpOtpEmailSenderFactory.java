@@ -29,7 +29,7 @@ public class SmtpOtpEmailSenderFactory implements OtpEmailSenderFactory {
                             .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE,
                                     new HashMap<>(Map.of("code", code)));
                 } catch (EmailException e) {
-                    throw new OtpEmailException("Failed to send OTP email over SMTP", e);
+                    throw new OtpEmailException(PROVIDER_ID, "Failed to send OTP email over SMTP", e);
                 }
             }
 

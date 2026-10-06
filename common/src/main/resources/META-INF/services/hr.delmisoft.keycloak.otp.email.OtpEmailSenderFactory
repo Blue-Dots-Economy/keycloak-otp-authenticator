@@ -1,1 +1,2 @@
 hr.delmisoft.keycloak.otp.email.SmtpOtpEmailSenderFactory
+hr.delmisoft.keycloak.otp.email.HttpOtpEmailSenderFactory

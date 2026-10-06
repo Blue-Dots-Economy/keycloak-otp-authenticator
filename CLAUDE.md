@@ -59,8 +59,16 @@ themes (no Java dependencies)
 - `EmailOtpConst` / `SmsOtpConst` — constants (provider IDs, config keys, defaults, auth note keys, error codes)
 - Custom SMS SPI: `SmsProvider` / `SmsProviderFactory` / `SmsSpi` with `LogSmsSenderFactory` default
 - SMS providers: `log`, `http`, `twilio`, `sns`, `msg91`, selected at runtime by `KC_SPI_SMS_PROVIDER`
-- Custom email SPI `otp-email`: `OtpEmailSender` / `OtpEmailSenderFactory` / `OtpEmailSenderSpi`, selected by `KC_SPI_OTP_EMAIL_PROVIDER`.
+- Custom email SPI `otp-email`: `OtpEmailSender` / `OtpEmailSenderFactory` / `OtpEmailSenderSpi`, selected by
+  `KC_SPI_OTP_EMAIL__PROVIDER` (double underscore) / `--spi-otp-email--provider`. The SPI id has a dash, so use the
+  Keycloak 26.3+ `--` separator form; single-underscore `KC_SPI_OTP_EMAIL_PROVIDER` also works under `start`/`start-dev`
+  with a legacy-format warning at boot. With `start --optimized`, either form must be set at `kc.sh build` (a runtime-only
+  value exits 2, "build time options ... differ from what is persisted"). Verified on Keycloak 26.5.5 and 26.7.3.
   `smtp` (`SmtpOtpEmailSenderFactory`, `order()` 100, the default) sends the theme template `email-otp-code.ftl` through Keycloak SMTP.
+  `http` (`HttpOtpEmailSenderFactory`, `order()` 0) posts `template_key: login_otp`, `channel: email` to notification-service
+  `/v1/notify` through the shared `NsNotifyClient` (same `SMS_HTTP_*` settings). A missing/blank email fails before any request.
+  `OtpEmailException` messages and logs carry the transport and HTTP status only — never the address or the code
+  (`OtpEmailException.transport()` names the provider for logging).
   Every email OTP call site (`EmailOtpAuthenticator`, `OtpChannelChoiceAuthenticator`, `EmailOtpGrantType`) goes through `OtpEmailSender`.
 - SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`, `hr.delmisoft.keycloak.otp.email.OtpEmailSenderFactory`
 

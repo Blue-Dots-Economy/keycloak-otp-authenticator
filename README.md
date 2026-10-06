@@ -263,9 +263,77 @@ Details:
   `otpChoice.markVerified`. The direct-grant types (`urn:otp:email`, `urn:otp:sms`) always record.
 - The demo realm ships a `phone_number_verified` mapper on both clients as a reference.
 
-## Email Configuration
+## Email OTP Providers
 
-Email OTP uses Keycloak's built-in email provider. Configure SMTP settings in the admin console under **Realm Settings** > **Email**. No additional configuration is needed for the email channel beyond standard Keycloak SMTP setup.
+Every email OTP (the email and channel-choice browser forms, and the `urn:otp:email` grant)
+goes through the `otp-email` SPI. Two providers ship with the plugin:
+
+| Provider id | Class | Delivery |
+|---|---|---|
+| `smtp` | `SmtpOtpEmailSenderFactory` | Default. Keycloak's own SMTP with the realm's email theme (`email-otp-code.ftl`). |
+| `http` | `HttpOtpEmailSenderFactory` | Hands the code to notification-service, which renders the `login_otp` email and sends it. |
+
+`smtp` has the higher `order()`, so it is the provider whenever none is selected.
+
+### Using the SMTP Provider (default)
+
+Configure SMTP in the admin console under **Realm Settings** > **Email**, and set the realm's
+email theme to `otp` for the bundled OTP template. Nothing else is needed.
+
+### Using the HTTP Provider (notification-service)
+
+Select it with the SPI option `spi-otp-email--provider`:
+
+```yaml
+# docker-compose.yml
+environment:
+  KC_SPI_OTP_EMAIL__PROVIDER: http          # note the double underscore, see below
+  SMS_HTTP_URL:     http://notification-service:3000/v1/notify
+  SMS_HTTP_SECRET:  ${SMS_HTTP_SECRET}
+  SMS_HTTP_KEY_ID:  keycloak                # default: keycloak
+  SMS_HTTP_TIMEOUT_MS: 5000                 # default: 5000
+```
+
+or `kc.sh start --spi-otp-email--provider=http`.
+
+The SPI id contains a dash, so the provider option uses Keycloak's `--` separator form
+(Keycloak 26.3 and later): `--spi-otp-email--provider` on the command line and
+`KC_SPI_OTP_EMAIL__PROVIDER` (two underscores) in the environment. Keycloak reads this form
+as a build-time option without ambiguity. The single-underscore `KC_SPI_OTP_EMAIL_PROVIDER`
+also selects `http` when Keycloak builds at start (`start`, `start-dev`), with a
+legacy-format warning at boot, so prefer the double-underscore name. Like
+`KC_SPI_SMS_PROVIDER`, the provider is a build-time option: with `start --optimized` it
+must be set when `kc.sh build` runs.
+
+The provider shares the notification-service client settings of the SMS `http` provider
+(`SMS_HTTP_URL`, `SMS_HTTP_SECRET`, `SMS_HTTP_KEY_ID`, `SMS_HTTP_TIMEOUT_MS`, HMAC v2
+signing), so a cluster configures notification-service once for both channels. Two
+settings are specific to email:
+
+| Env | SPI option | Default | Sent as |
+|---|---|---|---|
+| `OTP_EMAIL_HTTP_TEMPLATE_ID` | `--spi-otp-email--http--template-id` | `login_otp` | `template_key` |
+| `OTP_EMAIL_HTTP_OTP_VAR_NAME` | `--spi-otp-email--http--otp-var-name` | `message` | the variable holding the code |
+
+Only the code and the account's email address (trimmed) are sent:
+
+```json
+{"template_key":"login_otp","channel":"email","to":{"email":"asha@example.org"},
+ "variables":{"message":"123456"},"priority":"urgent"}
+```
+
+A user with no email address fails the send before any request is made, and the browser
+forms show `emailSendError` as they do for an SMTP failure. The plugin logs neither the
+address nor the code.
+
+notification-service owns the email copy and the sender identity:
+
+- **Template.** The email `login_otp` template (subject, HTML and text body, with
+  `{{message}}` for the code and the network's sign-off) comes from the network's
+  `ns-catalogue.json` in bluedots-schemas, seeded into notification-service through
+  `NS_SEED_FILE`. Edit it afterwards through the notification-service admin API.
+- **Sender.** notification-service sends from `EMAIL_FROM_ADDRESS` over its configured email
+  vendor.
 
 ## SMS Provider SPI
 
