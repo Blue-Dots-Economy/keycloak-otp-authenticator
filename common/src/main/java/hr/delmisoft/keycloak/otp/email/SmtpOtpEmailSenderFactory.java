@@ -41,6 +41,6 @@ public class SmtpOtpEmailSenderFactory implements OtpEmailSenderFactory {
     @Override public void postInit(KeycloakSessionFactory factory) { }
     @Override public void close() { }
     @Override public String getId() { return PROVIDER_ID; }
-    /** Highest order wins when KC_SPI_OTP_EMAIL_PROVIDER is unset, so SMTP stays the default. */
+    /** Highest order wins when KC_SPI_OTP_EMAIL__PROVIDER is unset, so SMTP stays the default. */
     @Override public int order() { return 100; }
 }

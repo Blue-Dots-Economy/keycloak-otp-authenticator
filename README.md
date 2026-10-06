@@ -10,7 +10,7 @@ A Keycloak SPI plugin that adds one-time password (OTP) authentication via **ema
 ## Requirements
 
 - Java 17+
-- Keycloak 26.x (built against 26.5.5)
+- Keycloak 26.7.x (compiled against 26.7.3, the version the Blue Dots Keycloak image runs)
 - Maven 3.x
 
 ## Project Structure

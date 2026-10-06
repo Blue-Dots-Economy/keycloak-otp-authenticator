@@ -13,7 +13,7 @@ import org.keycloak.models.UserModel;
  * Hands the login OTP email to notification-service {@code POST /v1/notify} as
  * {@code template_key: login_otp}, {@code channel: email}. notification-service owns the
  * copy (per-network catalogue) and the sender identity. Activated with
- * {@code KC_SPI_OTP_EMAIL_PROVIDER=http}; uses the same {@code SMS_HTTP_*} client settings
+ * {@code KC_SPI_OTP_EMAIL__PROVIDER=http}; uses the same {@code SMS_HTTP_*} client settings
  * as the SMS {@code http} provider, plus {@code template-id} (default {@code login_otp}) and
  * {@code otp-var-name} (default {@code message}) in this SPI's scope.
  *

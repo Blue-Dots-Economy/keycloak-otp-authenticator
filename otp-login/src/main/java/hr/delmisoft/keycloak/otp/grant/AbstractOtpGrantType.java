@@ -3,13 +3,17 @@ package hr.delmisoft.keycloak.otp.grant;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import hr.delmisoft.keycloak.otp.email.OtpEmailException;
+import hr.delmisoft.keycloak.otp.sms.SmsException;
 import org.keycloak.OAuthErrorException;
 import org.keycloak.authentication.AuthenticationProcessor;
 import org.keycloak.events.Details;
@@ -50,6 +54,15 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
     static final int DEFAULT_CODE_LENGTH = 6;
     static final int DEFAULT_TTL = 300;
     static final int DEFAULT_MAX_RETRIES = 3;
+
+    /**
+     * Same as Keycloak's built-in grants: no parameter is a "token parameter", so every request
+     * parameter (username, password, otp, otp_session) gets the default request-parameter length limit.
+     */
+    @Override
+    public Set<String> getTokenParameterNames() {
+        return Collections.emptySet();
+    }
 
     @Override
     public Response process(Context context) {
@@ -132,7 +145,7 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
         try {
             target = sendOtp(user, code);
         } catch (Exception e) {
-            LOG.error("Failed to send OTP", e);
+            LOG.errorf("OTP not sent: %s", sendFailureSummary(e));
             event.error(Errors.EMAIL_SEND_FAILED);
             throw new CorsErrorResponseException(cors, "otp_send_failed",
                     "Failed to send OTP", Response.Status.INTERNAL_SERVER_ERROR);
@@ -303,4 +316,21 @@ public abstract class AbstractOtpGrantType extends OAuth2GrantTypeBase {
 
     /** Error code for max retries exceeded. */
     protected abstract String getMaxRetriesError();
+
+    /**
+     * Transport and error class of a send failure, for logging. The cause chain is left out on
+     * purpose: a mail server or SMS vendor error can name the recipient.
+     */
+    static String sendFailureSummary(Exception e) {
+        String transport;
+        if (e instanceof OtpEmailException emailFailure) {
+            transport = emailFailure.transport();
+        } else if (e instanceof SmsException) {
+            transport = "sms";
+        } else {
+            transport = "unknown";
+        }
+        Throwable error = e.getCause() != null ? e.getCause() : e;
+        return "transport=" + transport + " error=" + error.getClass().getSimpleName();
+    }
 }

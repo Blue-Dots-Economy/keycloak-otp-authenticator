@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Keycloak SPI plugin that adds OTP authentication via **email** and **SMS** channels. Multi-module Maven project producing a single deployable JAR.
 
-- **Keycloak version**: 26.5.5
+- **Keycloak version**: 26.7.3 — the runtime of the Blue Dots image (bluedots-automation `dockerfiles/keycloak/Dockerfile`
+  `ARG KEYCLOAK_VERSION`). Compile against the version that runs: SPI interfaces gain abstract methods between minors
+  (26.7 added `OAuth2GrantType.getTokenParameterNames()`), and a plugin built on an older minor fails at call time with
+  `AbstractMethodError`. Bump `keycloak.version` in the parent pom and the dev `Dockerfile` together with the runtime.
 - **Java**: 17
 - **Build system**: Maven (multi-module)
 
@@ -64,6 +67,7 @@ themes (no Java dependencies)
   Keycloak 26.3+ `--` separator form; single-underscore `KC_SPI_OTP_EMAIL_PROVIDER` also works under `start`/`start-dev`
   with a legacy-format warning at boot. With `start --optimized`, either form must be set at `kc.sh build` (a runtime-only
   value exits 2, "build time options ... differ from what is persisted"). Verified on Keycloak 26.5.5 and 26.7.3.
+  Send failures in the grants and the channel-choice form log `transport=<id> error=<class>` only, never the cause chain.
   `smtp` (`SmtpOtpEmailSenderFactory`, `order()` 100, the default) sends the theme template `email-otp-code.ftl` through Keycloak SMTP.
   `http` (`HttpOtpEmailSenderFactory`, `order()` 0) posts `template_key: login_otp`, `channel: email` to notification-service
   `/v1/notify` through the shared `NsNotifyClient` (same `SMS_HTTP_*` settings). A missing/blank email fails before any request.
