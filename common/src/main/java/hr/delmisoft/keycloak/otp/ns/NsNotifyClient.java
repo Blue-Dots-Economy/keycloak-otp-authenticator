@@ -63,7 +63,10 @@ public final class NsNotifyClient {
             LOG.warn("notification-service client not fully configured. Set SMS_HTTP_URL and SMS_HTTP_SECRET "
                     + "(or the equivalent SPI config) before activating an 'http' provider.");
         }
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(timeoutMs)).build();
+        HttpClient http = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofMillis(timeoutMs))
+                .build();
         return new NsNotifyClient(http, parseUrl(url), keyId, secret, timeoutMs);
     }
 
@@ -80,16 +83,22 @@ public final class NsNotifyClient {
         String nonce = newNonce();
         String signature = signV2(secret, "POST", signingPath(uri), timestamp, nonce, body);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(uri)
-                .timeout(Duration.ofMillis(timeoutMs))
-                .header("Content-Type", "application/json")
-                .header("X-NS-Key", keyId)
-                .header("X-NS-Timestamp", timestamp)
-                .header("X-NS-Nonce", nonce)
-                .header("X-NS-Signature", "v2=" + signature)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder()
+                    .uri(uri)
+                    .timeout(Duration.ofMillis(timeoutMs))
+                    .header("Content-Type", "application/json")
+                    .header("X-NS-Key", keyId)
+                    .header("X-NS-Timestamp", timestamp)
+                    .header("X-NS-Nonce", nonce)
+                    .header("X-NS-Signature", "v2=" + signature)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                    .build();
+        } catch (IllegalArgumentException e) {
+            // The URI scheme or a header value (for example SMS_HTTP_KEY_ID) is outside what HTTP allows.
+            throw new NsNotifyException("notification-service request could not be built: check SMS_HTTP_URL and SMS_HTTP_KEY_ID", e);
+        }
 
         long startedAt = System.currentTimeMillis();
         HttpResponse<String> response;
@@ -149,13 +158,15 @@ public final class NsNotifyClient {
         if (raw == null || raw.isBlank()) return null;
         try {
             URI parsed = URI.create(raw.trim());
-            if (parsed.getScheme() == null || parsed.getHost() == null) {
-                LOG.errorf("SMS_HTTP_URL '%s' is not an absolute http(s) URL", raw);
+            String scheme = parsed.getScheme();
+            boolean httpScheme = "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+            if (!httpScheme || parsed.getHost() == null) {
+                LOG.errorf("SMS_HTTP_URL must be an absolute http(s) URL (scheme=%s, host=%s)", scheme, parsed.getHost());
                 return null;
             }
             return parsed;
         } catch (IllegalArgumentException e) {
-            LOG.errorf("SMS_HTTP_URL '%s' is not a valid URL: %s", raw, e.getMessage());
+            LOG.error("SMS_HTTP_URL is not a valid URL");
             return null;
         }
     }

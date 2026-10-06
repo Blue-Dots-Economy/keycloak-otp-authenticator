@@ -1,6 +1,7 @@
 package hr.delmisoft.keycloak.otp.ns;
 
 import org.junit.jupiter.api.Test;
+import org.keycloak.Config;
 import org.mockito.ArgumentCaptor;
 
 import java.net.URI;
@@ -151,5 +152,64 @@ class NsNotifyClientTest {
     @Test
     void json_escapes() {
         assertThat(NsNotifyClient.json("a\"b\\c\n\t\u0001"), equalTo("a\\\"b\\\\c\\n\\t\\u0001"));
+    }
+
+    @Test
+    void parseUrl_acceptsOnlyHttpSchemes() {
+        assertThat(NsNotifyClient.parseUrl("https://ns:3000/v1/notify"), notNullValue());
+        assertThat(NsNotifyClient.parseUrl("HTTP://ns:3000/v1/notify"), notNullValue());
+        assertThat(NsNotifyClient.parseUrl("ftp://ns:3000/v1/notify"), nullValue());
+    }
+
+    @Test
+    void send_ftpUriFailsAsNsNotifyException() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        NsNotifyClient ftp = new NsNotifyClient(http, URI.create("ftp://ns:3000/v1/notify"), "keycloak", SECRET, 5000L);
+        NsNotifyException e = assertThrows(NsNotifyException.class, () -> ftp.send(BODY));
+        assertThat(e.status(), equalTo(-1));
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void send_headerIllegalKeyIdFailsAsNsNotifyException() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        NsNotifyClient badKey = new NsNotifyClient(http, URI.create(URL), "key\nid", SECRET, 5000L);
+        NsNotifyException e = assertThrows(NsNotifyException.class, () -> badKey.send(BODY));
+        assertThat(e.status(), equalTo(-1));
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    void isConfigured_falseWhenSecretBlank() {
+        HttpClient http = mock(HttpClient.class);
+        assertThat(new NsNotifyClient(http, URI.create(URL), "keycloak", " ", 5000L).isConfigured(), is(false));
+        assertThat(new NsNotifyClient(http, URI.create(URL), "keycloak", null, 5000L).isConfigured(), is(false));
+        assertThat(new NsNotifyClient(http, URI.create(URL), "keycloak", SECRET, 5000L).isConfigured(), is(true));
+    }
+
+    @Test
+    void readConfig_spiWinsOverEnv() {
+        Config.Scope scope = mock(Config.Scope.class);
+        doReturn("from-spi").when(scope).get("url");
+        assertThat(NsNotifyClient.readConfig(scope, "url", "PATH"), equalTo("from-spi"));
+    }
+
+    @Test
+    void readConfig_blankSpiFallsThroughToEnv() {
+        // PATH is set in every test environment, so it stands in for SMS_HTTP_* here.
+        Config.Scope scope = mock(Config.Scope.class);
+        doReturn(" ").when(scope).get("url");
+        assertThat(System.getenv("PATH"), notNullValue());
+        assertThat(NsNotifyClient.readConfig(scope, "url", "PATH"), equalTo(System.getenv("PATH")));
+        assertThat(NsNotifyClient.readConfig(null, "url", "PATH"), equalTo(System.getenv("PATH")));
+    }
+
+    @Test
+    void readConfigOrDefault_returnsDefaultWhenUnset() {
+        Config.Scope scope = mock(Config.Scope.class);
+        String unsetEnv = "NS_NOTIFY_CLIENT_TEST_UNSET_" + System.nanoTime();
+        assertThat(NsNotifyClient.readConfigOrDefault(scope, "key-id", unsetEnv, "keycloak"), equalTo("keycloak"));
+        doReturn("signals").when(scope).get("key-id");
+        assertThat(NsNotifyClient.readConfigOrDefault(scope, "key-id", unsetEnv, "keycloak"), equalTo("signals"));
     }
 }
