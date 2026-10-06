@@ -83,6 +83,20 @@ class NsNotifyClientTest {
     }
 
     @Test
+    void send_usesAFreshNonceEachTime() throws Exception {
+        HttpClient http = clientReturning(202, "{}");
+        NsNotifyClient c = client(http, URL);
+        c.send(BODY);
+        c.send(BODY);
+
+        ArgumentCaptor<HttpRequest> req = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http, times(2)).send(req.capture(), any());
+        String first = req.getAllValues().get(0).headers().firstValue("X-NS-Nonce").orElseThrow();
+        String second = req.getAllValues().get(1).headers().firstValue("X-NS-Nonce").orElseThrow();
+        assertThat(first, not(equalTo(second)));
+    }
+
+    @Test
     void signingPath_includesQuery() {
         assertThat(NsNotifyClient.signingPath(URI.create("http://ns:3000/v1/notify?x=1")), equalTo("/v1/notify?x=1"));
         assertThat(NsNotifyClient.signingPath(URI.create("http://ns:3000/v1/notify")), equalTo("/v1/notify"));

@@ -75,10 +75,12 @@ Two things about it are easy to get wrong:
   `"Your verification code is: " + code` in `SmsOtpAuthenticator` / `SmsOtpGrantType` — it
   does **not** come from `themes/`, and `extractOtp` takes the first 4-10 digit run, so
   localising it must not put a digit ahead of the code.
-- The HMAC envelope is `METHOD\nPATH\nTIMESTAMP\nNONCE` where PATH is the request target
-  *including any query string* — notification-service signs over `req.url`. The nonce is
-  single-use for 60s server-side, so it must be freshly random per request, and the timestamp
-  window is ±30s.
+- The `http` provider posts to notification-service `/v1/notify`, signed with HMAC v2:
+  `X-NS-Signature: v2=<hex>` over `METHOD\npath\ntimestamp\nnonce\nsha256hex(body)`, where
+  path is the request target *including any query string* (notification-service signs over
+  `req.url`) and the digest covers the exact body bytes sent. The nonce is single-use for 60s
+  server-side, so each request carries a fresh random nonce, and the timestamp is unix
+  seconds within a ±30s window.
 
 **otp-2fa** — browser flow authenticators (2FA after password):
 - `EmailOtpAuthenticator` / `EmailOtpAuthenticatorFactory` — email OTP form
