@@ -41,8 +41,16 @@ public class HttpOtpEmailSenderFactory implements OtpEmailSenderFactory {
         return new HttpOtpEmailSender(client, templateId, otpVarName);
     }
 
-    @Override public void postInit(KeycloakSessionFactory factory) { }
-    @Override public void close() { }
+    @Override
+    public void postInit(KeycloakSessionFactory factory) {
+        // Nothing to wire after startup: all settings are read in init(Config.Scope).
+    }
+
+    @Override
+    public void close() {
+        // Nothing to release explicitly: the NsNotifyClient HttpClient lives as long as Keycloak and goes with the JVM.
+    }
+
     @Override public String getId() { return PROVIDER_ID; }
     /** Below {@code smtp} (100), so this provider runs only when selected explicitly. */
     @Override public int order() { return 0; }
@@ -72,16 +80,26 @@ public class HttpOtpEmailSenderFactory implements OtpEmailSenderFactory {
                 client.send(buildJsonBody(email, code));
                 LOG.info("OTP email handed to notification-service");
             } catch (NsNotifyException e) {
-                String reason = e.status() > 0
-                        ? "HTTP " + e.status()
-                        : (e.getCause() != null ? e.getCause() : e).getClass().getSimpleName();
+                String reason = failureReason(e);
                 LOG.errorf("OTP email not accepted by notification-service: reason=%s", reason);
                 throw new OtpEmailException(PROVIDER_ID,
                         "notification-service did not accept the OTP email: " + reason, e);
             }
         }
 
-        @Override public void close() { }
+        @Override
+        public void close() {
+            // Per-session sender holds no resources; the shared client lives on the factory.
+        }
+
+        /** HTTP status when notification-service answered, else the transport failure's type; never the address or code. */
+        static String failureReason(NsNotifyException e) {
+            if (e.status() > 0) {
+                return "HTTP " + e.status();
+            }
+            Throwable source = e.getCause() != null ? e.getCause() : e;
+            return source.getClass().getSimpleName();
+        }
 
         String buildJsonBody(String email, String code) {
             return "{\"template_key\":\"" + NsNotifyClient.json(templateId) + "\","

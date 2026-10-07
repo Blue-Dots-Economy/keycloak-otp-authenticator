@@ -51,8 +51,16 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         return new HttpSmsProvider(session, client, templateId, otpVarName);
     }
 
-    @Override public void postInit(KeycloakSessionFactory factory) { }
-    @Override public void close() { }
+    @Override
+    public void postInit(KeycloakSessionFactory factory) {
+        // Nothing to wire after startup: all settings are read in init(Config.Scope).
+    }
+
+    @Override
+    public void close() {
+        // Nothing to release explicitly: the NsNotifyClient HttpClient lives as long as Keycloak and goes with the JVM.
+    }
+
     @Override public String getId() { return PROVIDER_ID; }
 
     static final class HttpSmsProvider implements SmsProvider {
@@ -96,7 +104,10 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
             }
         }
 
-        @Override public void close() { }
+        @Override
+        public void close() {
+            // Per-session provider holds no resources; the shared client lives on the factory.
+        }
 
         String buildJsonBody(String e164Phone, String otpCode) {
             return "{\"template_key\":\"" + NsNotifyClient.json(templateId) + "\","

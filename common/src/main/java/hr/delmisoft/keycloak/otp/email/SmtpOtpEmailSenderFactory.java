@@ -33,13 +33,28 @@ public class SmtpOtpEmailSenderFactory implements OtpEmailSenderFactory {
                 }
             }
 
-            @Override public void close() { }
+            @Override
+            public void close() {
+                // Nothing to release: the EmailTemplateProvider is owned and closed by the session.
+            }
         };
     }
 
-    @Override public void init(Config.Scope config) { }
-    @Override public void postInit(KeycloakSessionFactory factory) { }
-    @Override public void close() { }
+    @Override
+    public void init(Config.Scope config) {
+        // No settings of its own: SMTP is configured per realm in Keycloak's email settings.
+    }
+
+    @Override
+    public void postInit(KeycloakSessionFactory factory) {
+        // Nothing to wire after startup.
+    }
+
+    @Override
+    public void close() {
+        // No resources to release: this factory holds no state.
+    }
+
     @Override public String getId() { return PROVIDER_ID; }
     /** Highest order wins when KC_SPI_OTP_EMAIL__PROVIDER is unset, so SMTP stays the default. */
     @Override public int order() { return 100; }

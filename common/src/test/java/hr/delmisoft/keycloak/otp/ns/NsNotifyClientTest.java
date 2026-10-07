@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -105,18 +106,26 @@ class NsNotifyClientTest {
 
     @Test
     void send_accepts2xx() throws Exception {
-        client(clientReturning(200, "{}"), URL).send(BODY);
-        client(clientReturning(202, "{}"), URL).send(BODY);
+        for (int status : new int[] {200, 202}) {
+            HttpClient http = clientReturning(status, "{}");
+            assertDoesNotThrow(() -> client(http, URL).send(BODY));
+            assertThat(captured(http).method(), equalTo("POST"));
+        }
     }
 
     @Test
     void send_409DuplicateFallbackIsAccepted() throws Exception {
-        client(clientReturning(409, "{\"error\":\"duplicate-fallback\"}"), URL).send(BODY);
-        client(clientReturning(409, "{\"enqueued\":false,\"reason\":\"duplicate-fallback\"}"), URL).send(BODY);
+        for (String body : new String[] {
+                "{\"error\":\"duplicate-fallback\"}",
+                "{\"enqueued\":false,\"reason\":\"duplicate-fallback\"}"}) {
+            HttpClient http = clientReturning(409, body);
+            assertDoesNotThrow(() -> client(http, URL).send(BODY));
+            assertThat(captured(http).method(), equalTo("POST"));
+        }
     }
 
     @Test
-    void send_other409Fails() throws Exception {
+    void send_other409Fails() {
         NsNotifyException a = assertThrows(NsNotifyException.class,
                 () -> client(clientReturning(409, "{\"error\":\"idempotency_in_progress\"}"), URL).send(BODY));
         assertThat(a.status(), equalTo(409));
@@ -125,7 +134,7 @@ class NsNotifyClientTest {
     }
 
     @Test
-    void send_non2xxFailsWithStatus() throws Exception {
+    void send_non2xxFailsWithStatus() {
         NsNotifyException e = assertThrows(NsNotifyException.class,
                 () -> client(clientReturning(422, "{\"error\":\"unknown_template\"}"), URL).send(BODY));
         assertThat(e.status(), equalTo(422));
@@ -142,7 +151,7 @@ class NsNotifyClientTest {
     }
 
     @Test
-    void send_unconfiguredFailsWithoutRequest() throws Exception {
+    void send_unconfiguredFailsWithoutRequest() {
         HttpClient http = mock(HttpClient.class);
         NsNotifyClient unconfigured = new NsNotifyClient(http, null, "keycloak", SECRET, 5000L);
         assertThat(unconfigured.isConfigured(), is(false));
@@ -176,7 +185,7 @@ class NsNotifyClientTest {
     }
 
     @Test
-    void send_ftpUriFailsAsNsNotifyException() throws Exception {
+    void send_ftpUriFailsAsNsNotifyException() {
         HttpClient http = mock(HttpClient.class);
         NsNotifyClient ftp = new NsNotifyClient(http, URI.create("ftp://ns:3000/v1/notify"), "keycloak", SECRET, 5000L);
         NsNotifyException e = assertThrows(NsNotifyException.class, () -> ftp.send(BODY));
@@ -185,7 +194,7 @@ class NsNotifyClientTest {
     }
 
     @Test
-    void send_headerIllegalKeyIdFailsAsNsNotifyException() throws Exception {
+    void send_headerIllegalKeyIdFailsAsNsNotifyException() {
         HttpClient http = mock(HttpClient.class);
         NsNotifyClient badKey = new NsNotifyClient(http, URI.create(URL), "key\nid", SECRET, 5000L);
         NsNotifyException e = assertThrows(NsNotifyException.class, () -> badKey.send(BODY));
