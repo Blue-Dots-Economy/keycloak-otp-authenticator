@@ -1,1 +1,2 @@
 hr.delmisoft.keycloak.otp.sms.SmsSpi
+hr.delmisoft.keycloak.otp.email.OtpEmailSenderSpi

@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Keycloak SPI plugin that adds OTP authentication via **email** and **SMS** channels. Multi-module Maven project producing a single deployable JAR.
 
-- **Keycloak version**: 26.5.5
+- **Keycloak version**: 26.7.3 — the runtime of the Blue Dots image (bluedots-automation `dockerfiles/keycloak/Dockerfile`
+  `ARG KEYCLOAK_VERSION`). Compile against the version that runs: SPI interfaces gain abstract methods between minors
+  (26.7 added `OAuth2GrantType.getTokenParameterNames()`), and a plugin built on an older minor fails at call time with
+  `AbstractMethodError`. Bump `keycloak.version` in the parent pom and the dev `Dockerfile` together with the runtime.
 - **Java**: 17
 - **Build system**: Maven (multi-module)
 
@@ -59,7 +62,19 @@ themes (no Java dependencies)
 - `EmailOtpConst` / `SmsOtpConst` — constants (provider IDs, config keys, defaults, auth note keys, error codes)
 - Custom SMS SPI: `SmsProvider` / `SmsProviderFactory` / `SmsSpi` with `LogSmsSenderFactory` default
 - SMS providers: `log`, `http`, `twilio`, `sns`, `msg91`, selected at runtime by `KC_SPI_SMS_PROVIDER`
-- SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`
+- Custom email SPI `otp-email`: `OtpEmailSender` / `OtpEmailSenderFactory` / `OtpEmailSenderSpi`, selected by
+  `KC_SPI_OTP_EMAIL__PROVIDER` (double underscore) / `--spi-otp-email--provider`. The SPI id has a dash, so use the
+  Keycloak 26.3+ `--` separator form; single-underscore `KC_SPI_OTP_EMAIL_PROVIDER` also works under `start`/`start-dev`
+  with a legacy-format warning at boot. With `start --optimized`, either form must be set at `kc.sh build` (a runtime-only
+  value exits 2, "build time options ... differ from what is persisted"). Verified on Keycloak 26.5.5 and 26.7.3.
+  Send failures in the grants and the channel-choice form log `transport=<id> error=<class>` only, never the cause chain.
+  `smtp` (`SmtpOtpEmailSenderFactory`, `order()` 100, the default) sends the theme template `email-otp-code.ftl` through Keycloak SMTP.
+  `http` (`HttpOtpEmailSenderFactory`, `order()` 0) posts `template_key: login_otp`, `channel: email` to notification-service
+  `/v1/notify` through the shared `NsNotifyClient` (same `SMS_HTTP_*` settings). A missing/blank email fails before any request.
+  `OtpEmailException` messages and logs carry the transport and HTTP status only — never the address or the code
+  (`OtpEmailException.transport()` names the provider for logging).
+  Every email OTP call site (`EmailOtpAuthenticator`, `OtpChannelChoiceAuthenticator`, `EmailOtpGrantType`) goes through `OtpEmailSender`.
+- SPI registrations: `org.keycloak.provider.Spi`, `hr.delmisoft.keycloak.otp.sms.SmsProviderFactory`, `hr.delmisoft.keycloak.otp.email.OtpEmailSenderFactory`
 
 **Prefer `http` (`HttpSmsProviderFactory`) for new vendors.** Every other provider hardcodes
 one vendor, so each new one costs a Java change → jar rebuild → Keycloak image → tag pin →
@@ -75,10 +90,12 @@ Two things about it are easy to get wrong:
   `"Your verification code is: " + code` in `SmsOtpAuthenticator` / `SmsOtpGrantType` — it
   does **not** come from `themes/`, and `extractOtp` takes the first 4-10 digit run, so
   localising it must not put a digit ahead of the code.
-- The HMAC envelope is `METHOD\nPATH\nTIMESTAMP\nNONCE` where PATH is the request target
-  *including any query string* — notification-service signs over `req.url`. The nonce is
-  single-use for 60s server-side, so it must be freshly random per request, and the timestamp
-  window is ±30s.
+- The `http` provider posts to notification-service `/v1/notify`, signed with HMAC v2:
+  `X-NS-Signature: v2=<hex>` over `METHOD\npath\ntimestamp\nnonce\nsha256hex(body)`, where
+  path is the request target *including any query string* (notification-service signs over
+  `req.url`) and the digest covers the exact body bytes sent. The nonce is single-use for 60s
+  server-side, so each request carries a fresh random nonce, and the timestamp is unix
+  seconds within a ±30s window.
 
 **otp-2fa** — browser flow authenticators (2FA after password):
 - `EmailOtpAuthenticator` / `EmailOtpAuthenticatorFactory` — email OTP form

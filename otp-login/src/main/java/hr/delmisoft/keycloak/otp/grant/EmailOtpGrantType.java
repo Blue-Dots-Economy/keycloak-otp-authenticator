@@ -1,12 +1,9 @@
 package hr.delmisoft.keycloak.otp.grant;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.models.UserModel;
 
 import hr.delmisoft.keycloak.otp.EmailOtpConst;
+import hr.delmisoft.keycloak.otp.email.OtpEmailSender;
 import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
 
 /**
@@ -26,11 +23,7 @@ public class EmailOtpGrantType extends AbstractOtpGrantType {
 
     @Override
     protected String sendOtp(UserModel user, String code) throws Exception {
-        session.getProvider(EmailTemplateProvider.class)
-                .setRealm(realm)
-                .setUser(user)
-                .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE,
-                        new HashMap<>(Map.of("code", code)));
+        session.getProvider(OtpEmailSender.class).send(realm, user, code);
         return user.getEmail();
     }
 

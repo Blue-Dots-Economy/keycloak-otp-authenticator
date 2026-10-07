@@ -3,21 +3,19 @@ package hr.delmisoft.keycloak.otp;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.keycloak.authentication.AuthenticationFlowContext;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.common.util.Time;
-import org.keycloak.email.EmailException;
-import org.keycloak.email.EmailTemplateProvider;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
+import hr.delmisoft.keycloak.otp.email.OtpEmailException;
+import hr.delmisoft.keycloak.otp.email.OtpEmailSender;
 import hr.delmisoft.keycloak.otp.verify.OtpVerificationRecorder;
 
 public class EmailOtpAuthenticator implements Authenticator {
@@ -126,14 +124,12 @@ public class EmailOtpAuthenticator implements Authenticator {
 
     private boolean sendEmail(AuthenticationFlowContext context, String code) {
         try {
-            context.getSession().getProvider(EmailTemplateProvider.class)
-                    .setRealm(context.getRealm())
-                    .setUser(context.getUser())
-                    .send(EmailOtpConst.EMAIL_SUBJECT_KEY, EmailOtpConst.EMAIL_TEMPLATE, new HashMap<>(Map.of("code", code)));
+            context.getSession().getProvider(OtpEmailSender.class)
+                    .send(context.getRealm(), context.getUser(), code);
             // Remember the delivery target so verification can only mark that address verified
             context.getAuthenticationSession().setAuthNote(EmailOtpConst.AUTH_NOTE_EMAIL, context.getUser().getEmail());
             return true;
-        } catch (EmailException e) {
+        } catch (OtpEmailException e) {
             context.failureChallenge(AuthenticationFlowError.INTERNAL_ERROR,
                     context.form().setError("emailSendError").createErrorPage(jakarta.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR));
             return false;
