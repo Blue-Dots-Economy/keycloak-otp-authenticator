@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -68,12 +69,15 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
     private static final String DEFAULT_OTP_VAR_NAME = "message";
     private static final String DEFAULT_KEY_ID = "keycloak";
     private static final long DEFAULT_TIMEOUT_MS = 5000L;
+    static final String DEFAULT_CLIENT_APPS = "signals-ui=signals,aggregator-portal=aggregator";
+    static final String DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS = "aggregator";
 
     private URI uri;
     private String url;
     private String keyId;
     private String secret;
     private String templateId;
+    private OtpTemplateRouting templateRouting;
     private String otpVarName;
     private long timeoutMs;
     private HttpClient httpClient;
@@ -84,6 +88,9 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         this.secret     = readConfig(config, "secret", "SMS_HTTP_SECRET");
         this.keyId      = readConfigOrDefault(config, "key-id", "SMS_HTTP_KEY_ID", DEFAULT_KEY_ID);
         this.templateId = readConfigOrDefault(config, "template-id", "SMS_HTTP_TEMPLATE_ID", DEFAULT_TEMPLATE_ID);
+        this.templateRouting = OtpTemplateRouting.fromSettings(
+                readConfigKeepingEmpty(config, "client-apps", "SMS_HTTP_CLIENT_APPS", DEFAULT_CLIENT_APPS),
+                readConfigKeepingEmpty(config, "signin-needs-phone-verified-apps", "SMS_HTTP_SIGNIN_NEEDS_PHONE_VERIFIED_APPS", DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS));
         this.otpVarName = readConfigOrDefault(config, "otp-var-name", "SMS_HTTP_OTP_VAR_NAME", DEFAULT_OTP_VAR_NAME);
         this.timeoutMs  = parseTimeout(readConfig(config, "timeout-ms", "SMS_HTTP_TIMEOUT_MS"));
 
@@ -111,7 +118,8 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
 
     @Override
     public SmsProvider create(KeycloakSession session) {
-        return new HttpSmsProvider(httpClient, uri, keyId, secret, templateId, otpVarName, timeoutMs);
+        return new HttpSmsProvider(httpClient, uri, keyId, secret, templateId, otpVarName, timeoutMs)
+                .withTemplateRouting(templateRouting);
     }
 
     /** Null when absent or malformed; `send` turns that into a clean SmsException. */
@@ -173,6 +181,17 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         return System.getenv(envName);
     }
 
+    static String readConfigKeepingEmpty(Config.Scope config, String key, String envName, String defaultValue) {
+        if (config != null) {
+            String fromConfig = config.get(key);
+            if (fromConfig != null) {
+                return fromConfig;
+            }
+        }
+        String fromEnv = System.getenv(envName);
+        return fromEnv != null ? fromEnv : defaultValue;
+    }
+
     private static String readConfigOrDefault(Config.Scope config, String key,
                                               String envName, String defaultValue) {
         String value = readConfig(config, key, envName);
@@ -193,6 +212,7 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         private final String templateId;
         private final String otpVarName;
         private final long timeoutMs;
+        private OtpTemplateRouting templateRouting = OtpTemplateRouting.NONE;
 
         HttpSmsProvider(HttpClient httpClient, URI uri, String keyId, String secret,
                         String templateId, String otpVarName, long timeoutMs) {
@@ -207,6 +227,20 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
 
         @Override
         public void send(String phoneNumber, String message) throws SmsException {
+            send(phoneNumber, message, null);
+        }
+
+        HttpSmsProvider withTemplateRouting(OtpTemplateRouting templateRouting) {
+            this.templateRouting = templateRouting == null ? OtpTemplateRouting.NONE : templateRouting;
+            return this;
+        }
+
+        OtpTemplateRouting templateRouting() {
+            return templateRouting;
+        }
+
+        @Override
+        public void send(String phoneNumber, String message, SmsContext context) throws SmsException {
             if (uri == null || secret == null || secret.isBlank()) {
                 throw new SmsException("HTTP SMS provider not configured: check SMS_HTTP_URL and SMS_HTTP_SECRET");
             }
@@ -218,7 +252,10 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
             }
 
             String otpCode = extractOtp(message);
-            String body = buildJsonBody(phoneNumber.trim(), otpCode);
+            String otpTemplate = templateRouting.templateFor(context);
+            String body = otpTemplate == null
+                    ? buildJsonBody(phoneNumber.trim(), otpCode)
+                    : buildJsonBody(phoneNumber.trim(), otpCode, otpTemplate, context.variables());
 
             String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
             String nonce = newNonce();
@@ -291,12 +328,27 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         }
 
         String buildJsonBody(String phone, String otpCode) {
+            return buildJsonBody(phone, otpCode, this.templateId, null);
+        }
+
+        String buildJsonBody(String phone, String otpCode, String templateId, Map<String, String> extraVariables) {
+            StringBuilder vars = new StringBuilder()
+                    .append("\"").append(jsonEscape(otpVarName)).append("\":\"").append(jsonEscape(otpCode)).append("\"");
+            if (extraVariables != null) {
+                for (Map.Entry<String, String> e : extraVariables.entrySet()) {
+                    if (e.getKey() == null || e.getValue() == null || e.getKey().equals(otpVarName)) {
+                        continue;
+                    }
+                    vars.append(",\"").append(jsonEscape(e.getKey())).append("\":\"")
+                            .append(jsonEscape(e.getValue())).append("\"");
+                }
+            }
             return "{"
                     + "\"channel\":\"sms\","
                     + "\"to\":\"" + jsonEscape(phone) + "\","
                     + "\"template_id\":\"" + jsonEscape(templateId) + "\","
                     + "\"priority\":\"realtime\","
-                    + "\"variables\":{\"" + jsonEscape(otpVarName) + "\":\"" + jsonEscape(otpCode) + "\"}"
+                    + "\"variables\":{" + vars + "}"
                     + "}";
         }
 

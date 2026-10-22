@@ -286,4 +286,105 @@ class HttpSmsProviderFactoryTest {
         assertThat(HttpSmsProviderFactory.parseTimeout("0"), equalTo(5000L));
         assertThat(HttpSmsProviderFactory.parseTimeout("-1"), equalTo(5000L));
     }
+
+
+    private static HttpSmsProviderFactory.HttpSmsProvider providerWithContextTemplates(HttpClient client) {
+        return new HttpSmsProviderFactory.HttpSmsProvider(
+                client, URI.create(URL), "keycloak", SECRET, "login_otp", "message", 5000L)
+                .withTemplateRouting(OtpTemplateRouting.fromSettings("signals-ui=signals, aggregator-portal=aggregator", "aggregator"));
+    }
+
+    private static java.util.Map<String, String> link(String url) {
+        java.util.Map<String, String> m = new java.util.LinkedHashMap<>();
+        m.put("url", url);
+        return m;
+    }
+
+    @Test
+    void buildJsonBody_signupContext_usesSignupTemplateAndLink() {
+        HttpSmsProviderFactory.HttpSmsProvider p = providerWithContextTemplates(null);
+        SmsContext ctx = new SmsContext(SmsContext.SIGNUP, "signals-ui", link("https://signals-purpledots.depwd.gov.in"), false);
+
+        String body = p.buildJsonBody("+919999999999", "123456", p.templateRouting().templateFor(ctx), ctx.variables());
+
+        assertThat(body, equalTo("{\"channel\":\"sms\",\"to\":\"+919999999999\",\"template_id\":\"signals_signup_otp\","
+                + "\"priority\":\"realtime\",\"variables\":{\"message\":\"123456\","
+                + "\"url\":\"https://signals-purpledots.depwd.gov.in\"}}"));
+    }
+
+    @Test
+    void contextTemplateId_picksSigninOrSignup() {
+        HttpSmsProviderFactory.HttpSmsProvider p = providerWithContextTemplates(null);
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "signals-ui", null, true)), equalTo("signals_signin_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNUP, "signals-ui", null, false)), equalTo("signals_signup_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "aggregator-portal", null, true)), equalTo("aggregator_signin_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNUP, "aggregator-portal", null, false)), equalTo("aggregator_signup_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNUP, "other-client", null, false)), nullValue());
+        assertThat(p.templateRouting().templateFor(null), nullValue());
+    }
+
+    @Test
+    void contextTemplateId_withoutConfiguredTemplates_keepsDefault() {
+        HttpSmsProviderFactory.HttpSmsProvider p = provider(null);
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNUP, "signals-ui", link("https://x"), false)), nullValue());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void send_withContext_postsSignupTemplate_andWithoutTemplates_postsLoginOtpCodeOnly() throws Exception {
+        HttpClient client = clientReturning(202, "{\"enqueued\":true}");
+        providerWithContextTemplates(client)
+                .send("+919999999999", MESSAGE, new SmsContext(SmsContext.SIGNUP, "aggregator-portal", link("https://a.example"), false));
+        ArgumentCaptor<HttpRequest> req = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(client).send(req.capture(), any());
+        assertThat(bodyOf(req.getValue()), containsString("\"template_id\":\"aggregator_signup_otp\""));
+        assertThat(bodyOf(req.getValue()), containsString("\"url\":\"https://a.example\""));
+
+        HttpClient legacy = clientReturning(202, "{\"enqueued\":true}");
+        provider(legacy).send("+919999999999", MESSAGE, new SmsContext(SmsContext.SIGNUP, "aggregator-portal", link("https://a.example"), false));
+        ArgumentCaptor<HttpRequest> req2 = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(legacy).send(req2.capture(), any());
+        assertThat(bodyOf(req2.getValue()), containsString("\"template_id\":\"login_otp\""));
+        assertThat(bodyOf(req2.getValue()), not(containsString("url")));
+    }
+
+    private static String bodyOf(HttpRequest request) {
+        java.util.concurrent.CompletableFuture<String> out = new java.util.concurrent.CompletableFuture<>();
+        request.bodyPublisher().orElseThrow().subscribe(new java.util.concurrent.Flow.Subscriber<java.nio.ByteBuffer>() {
+            private final StringBuilder sb = new StringBuilder();
+            public void onSubscribe(java.util.concurrent.Flow.Subscription s) { s.request(Long.MAX_VALUE); }
+            public void onNext(java.nio.ByteBuffer b) { sb.append(java.nio.charset.StandardCharsets.UTF_8.decode(b)); }
+            public void onError(Throwable t) { out.completeExceptionally(t); }
+            public void onComplete() { out.complete(sb.toString()); }
+        });
+        return out.join();
+    }
+
+    @Test
+    void parseClientApps_skipsMalformedPairs() {
+        java.util.Map<String, String> m = OtpTemplateRouting.parseClientAppMap(" signals-ui = signals ,bad, =x, y=Bad-App, aggregator-portal=aggregator");
+        assertThat(m.toString(), equalTo("{signals-ui=signals, aggregator-portal=aggregator}"));
+        assertThat(OtpTemplateRouting.parseClientAppMap(null).isEmpty(), equalTo(true));
+    }
+
+    @Test
+    void signinNeedsPhoneVerifiedApp_usesPhoneAlone_otherAppsUseEitherContact() {
+        HttpSmsProviderFactory.HttpSmsProvider p = providerWithContextTemplates(null);
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "aggregator-portal", null, false)),
+                equalTo("aggregator_signup_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "signals-ui", null, false)),
+                equalTo("signals_signin_otp"));
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "aggregator-portal", null, true)),
+                equalTo("aggregator_signin_otp"));
+    }
+
+    @Test
+    void defaults_mapBlueDotsClients_andAggregatorIsPhoneOnly() {
+        assertThat(OtpTemplateRouting.parseClientAppMap(HttpSmsProviderFactory.DEFAULT_CLIENT_APPS).toString(),
+                equalTo("{signals-ui=signals, aggregator-portal=aggregator}"));
+        assertThat(OtpTemplateRouting.parseAppList(HttpSmsProviderFactory.DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS).toString(),
+                equalTo("[aggregator]"));
+        assertThat(HttpSmsProviderFactory.readConfigKeepingEmpty(null, "client-apps", "SMS_HTTP_TEST_UNSET_VAR", "d"),
+                equalTo("d"));
+    }
 }

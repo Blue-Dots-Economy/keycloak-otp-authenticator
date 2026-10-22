@@ -16,6 +16,7 @@ import org.keycloak.common.util.Time;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.http.HttpRequest;
 import org.keycloak.models.AuthenticatorConfigModel;
+import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -29,10 +30,12 @@ import org.mockito.quality.Strictness;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -79,7 +82,7 @@ class SmsOtpAuthenticatorTest {
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_CODE), anyString());
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_EXPIRY), anyString());
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_ATTEMPTS), eq("0"));
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(authSession).setAuthNote(SmsOtpConst.AUTH_NOTE_PHONE, "+1234567890");
         verify(context).challenge(formResponse);
     }
@@ -90,7 +93,7 @@ class SmsOtpAuthenticatorTest {
         when(context.form()).thenReturn(form);
         when(form.setError(anyString())).thenReturn(form);
         when(form.createErrorPage(any())).thenReturn(formResponse);
-        doThrow(new SmsException("fail")).when(smsProvider).send(anyString(), anyString());
+        doThrow(new SmsException("fail")).when(smsProvider).send(anyString(), anyString(), any());
 
         authenticator.authenticate(context);
 
@@ -247,7 +250,7 @@ class SmsOtpAuthenticatorTest {
         ArgumentCaptor<String> codeCaptor = ArgumentCaptor.forClass(String.class);
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_CODE), codeCaptor.capture());
         assertThat(codeCaptor.getValue(), notNullValue());
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(context).failureChallenge(eq(AuthenticationFlowError.EXPIRED_CODE), any());
     }
 
@@ -291,7 +294,7 @@ class SmsOtpAuthenticatorTest {
         ArgumentCaptor<String> codeCaptor = ArgumentCaptor.forClass(String.class);
         verify(authSession).setAuthNote(eq(SmsOtpConst.AUTH_NOTE_CODE), codeCaptor.capture());
         assertThat(codeCaptor.getValue().length(), equalTo(8));
-        verify(smsProvider).send(eq("+9876543210"), anyString());
+        verify(smsProvider).send(eq("+9876543210"), anyString(), any());
     }
 
     @Test
@@ -309,5 +312,100 @@ class SmsOtpAuthenticatorTest {
     void configuredFor_userWithoutPhone_returnsFalse() {
         when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn(null);
         assertThat(authenticator.configuredFor(session, realm, user), equalTo(false));
+    }
+
+
+    @Test
+    void smsContext_unverifiedPhone_isSignup_withAppLink() {
+        ClientModel client = mock(ClientModel.class);
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(authSession.getClient()).thenReturn(client);
+        when(client.getRootUrl()).thenReturn("https://signals-purpledots.depwd.gov.in/");
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)).thenReturn(null);
+
+        SmsContext ctx = SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE);
+
+        assertThat(ctx.otpFlow(), equalTo("signup"));
+        when(client.getClientId()).thenReturn("signals-ui");
+        assertThat(SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE).clientId(), equalTo("signals-ui"));
+        assertThat(ctx.variables().get("url"), equalTo("https://signals-purpledots.depwd.gov.in"));
+    }
+
+    @Test
+    void smsContext_verifiedPhone_isSignin() {
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)).thenReturn("true");
+
+        assertThat(SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE).otpFlow(), equalTo("signin"));
+    }
+
+    @Test
+    void appUrl_prefersAbsoluteBaseUrl_ignoresRelativeOrMissing() {
+        ClientModel client = mock(ClientModel.class);
+        when(client.getBaseUrl()).thenReturn("https://aggregators-purpledots.depwd.gov.in/");
+        assertThat(SmsContexts.clientAppUrl(client), equalTo("https://aggregators-purpledots.depwd.gov.in"));
+
+        when(client.getBaseUrl()).thenReturn("/");
+        when(client.getRootUrl()).thenReturn("${authBaseUrl}");
+        assertThat(SmsContexts.clientAppUrl(client), nullValue());
+        assertThat(SmsContexts.clientAppUrl(null), nullValue());
+    }
+
+    @Test
+    void smsContext_linkComesFromTheLoginRedirectUri() {
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(authSession.getRedirectUri()).thenReturn("https://aggregators-purpledots.depwd.gov.in/api/auth/callback?x=1");
+
+        assertThat(SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE).variables().get("url"),
+                equalTo("https://aggregators-purpledots.depwd.gov.in"));
+    }
+
+    @Test
+    void origin_keepsSchemeHostPort_rejectsOthers() {
+        assertThat(SmsContexts.urlOrigin("http://localhost:5173/auth/callback"), equalTo("http://localhost:5173"));
+        assertThat(SmsContexts.urlOrigin("android-app://x/y"), nullValue());
+        assertThat(SmsContexts.urlOrigin("not a uri"), nullValue());
+        assertThat(SmsContexts.urlOrigin(null), nullValue());
+    }
+
+    @Test
+    void smsContext_verifiedEmail_isSignin_evenWithUnverifiedPhone() {
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)).thenReturn(null);
+        when(user.isEmailVerified()).thenReturn(true);
+
+        assertThat(SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE).otpFlow(), equalTo("signin"));
+    }
+
+    @Test
+    void smsContext_nothingVerified_isSignup() {
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticatorConfig()).thenReturn(null);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)).thenReturn(null);
+        when(user.isEmailVerified()).thenReturn(false);
+
+        assertThat(SmsContexts.build(context, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE).otpFlow(), equalTo("signup"));
+    }
+
+    @Test
+    void buildSmsContext_readsTheConfiguredPhoneVerifiedAttribute() {
+        when(context.getUser()).thenReturn(user);
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(user.getFirstAttribute("customPhoneVerified")).thenReturn("true");
+        when(user.isEmailVerified()).thenReturn(false);
+
+        SmsContext ctx = SmsContexts.build(context, "customPhoneVerified");
+
+        assertThat(ctx.otpFlow(), equalTo("signin"));
+        assertThat(ctx.phoneVerified(), equalTo(true));
     }
 }
