@@ -69,8 +69,6 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
     private static final String DEFAULT_OTP_VAR_NAME = "message";
     private static final String DEFAULT_KEY_ID = "keycloak";
     private static final long DEFAULT_TIMEOUT_MS = 5000L;
-    static final String DEFAULT_CLIENT_APPS = "signals-ui=signals,aggregator-portal=aggregator";
-    static final String DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS = "aggregator";
 
     private URI uri;
     private String url;
@@ -89,8 +87,8 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
         this.keyId      = readConfigOrDefault(config, "key-id", "SMS_HTTP_KEY_ID", DEFAULT_KEY_ID);
         this.templateId = readConfigOrDefault(config, "template-id", "SMS_HTTP_TEMPLATE_ID", DEFAULT_TEMPLATE_ID);
         this.templateRouting = OtpTemplateRouting.fromSettings(
-                readConfigKeepingEmpty(config, "client-apps", "SMS_HTTP_CLIENT_APPS", DEFAULT_CLIENT_APPS),
-                readConfigKeepingEmpty(config, "signin-needs-phone-verified-apps", "SMS_HTTP_SIGNIN_NEEDS_PHONE_VERIFIED_APPS", DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS));
+                readConfig(config, "client-apps", "SMS_HTTP_CLIENT_APPS"),
+                readConfig(config, "signin-needs-phone-verified-apps", "SMS_HTTP_SIGNIN_NEEDS_PHONE_VERIFIED_APPS"));
         this.otpVarName = readConfigOrDefault(config, "otp-var-name", "SMS_HTTP_OTP_VAR_NAME", DEFAULT_OTP_VAR_NAME);
         this.timeoutMs  = parseTimeout(readConfig(config, "timeout-ms", "SMS_HTTP_TIMEOUT_MS"));
 
@@ -179,17 +177,6 @@ public class HttpSmsProviderFactory implements SmsProviderFactory {
             }
         }
         return System.getenv(envName);
-    }
-
-    static String readConfigKeepingEmpty(Config.Scope config, String key, String envName, String defaultValue) {
-        if (config != null) {
-            String fromConfig = config.get(key);
-            if (fromConfig != null) {
-                return fromConfig;
-            }
-        }
-        String fromEnv = System.getenv(envName);
-        return fromEnv != null ? fromEnv : defaultValue;
     }
 
     private static String readConfigOrDefault(Config.Scope config, String key,

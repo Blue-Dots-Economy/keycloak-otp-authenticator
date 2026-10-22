@@ -379,12 +379,10 @@ class HttpSmsProviderFactoryTest {
     }
 
     @Test
-    void defaults_mapBlueDotsClients_andAggregatorIsPhoneOnly() {
-        assertThat(OtpTemplateRouting.parseClientAppMap(HttpSmsProviderFactory.DEFAULT_CLIENT_APPS).toString(),
-                equalTo("{signals-ui=signals, aggregator-portal=aggregator}"));
-        assertThat(OtpTemplateRouting.parseAppList(HttpSmsProviderFactory.DEFAULT_SIGNIN_NEEDS_PHONE_VERIFIED_APPS).toString(),
-                equalTo("[aggregator]"));
-        assertThat(HttpSmsProviderFactory.readConfigKeepingEmpty(null, "client-apps", "SMS_HTTP_TEST_UNSET_VAR", "d"),
-                equalTo("d"));
+    void unconfiguredRouting_keepsLoginOtpForEveryClient() {
+        factory.init(null);
+        HttpSmsProviderFactory.HttpSmsProvider p = (HttpSmsProviderFactory.HttpSmsProvider) factory.create(null);
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNIN, "signals-ui", null, true)), nullValue());
+        assertThat(p.templateRouting().templateFor(new SmsContext(SmsContext.SIGNUP, "aggregator-portal", null, false)), nullValue());
     }
 }
