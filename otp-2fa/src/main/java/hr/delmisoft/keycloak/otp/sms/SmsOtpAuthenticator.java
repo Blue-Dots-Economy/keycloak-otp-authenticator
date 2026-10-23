@@ -131,7 +131,8 @@ public class SmsOtpAuthenticator implements Authenticator {
 
         try {
             String message = "Your verification code is: " + code;
-            context.getSession().getProvider(SmsProvider.class).send(phoneNumber, message);
+            context.getSession().getProvider(SmsProvider.class).send(phoneNumber, message, SmsContexts.build(context,
+                    getConfigString(context, SmsOtpConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)));
             // Remember the delivery target so verification can only mark that number verified
             context.getAuthenticationSession().setAuthNote(SmsOtpConst.AUTH_NOTE_PHONE, phoneNumber);
             return true;

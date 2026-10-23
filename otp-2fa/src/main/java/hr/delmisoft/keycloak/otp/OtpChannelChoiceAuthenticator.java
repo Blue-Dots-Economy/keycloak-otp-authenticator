@@ -22,6 +22,7 @@ import org.jboss.logging.Logger;
 
 import hr.delmisoft.keycloak.otp.identifier.IdentifierFormConst;
 import hr.delmisoft.keycloak.otp.identifier.IdentifierUtil;
+import hr.delmisoft.keycloak.otp.sms.SmsContexts;
 import hr.delmisoft.keycloak.otp.sms.SmsException;
 import hr.delmisoft.keycloak.otp.sms.SmsOtpConst;
 import hr.delmisoft.keycloak.otp.sms.SmsProvider;
@@ -278,7 +279,9 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
         }
         try {
             String message = "Your verification code is: " + code;
-            context.getSession().getProvider(SmsProvider.class).send(phoneNumber, message);
+            context.getSession().getProvider(SmsProvider.class)
+                    .send(phoneNumber, message, SmsContexts.build(context, getConfigString(context,
+                            OtpChannelChoiceConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE)));
             // Remember the delivery target so verification can only mark that number verified
             context.getAuthenticationSession().setAuthNote(AUTH_NOTE_TARGET, phoneNumber);
             return true;

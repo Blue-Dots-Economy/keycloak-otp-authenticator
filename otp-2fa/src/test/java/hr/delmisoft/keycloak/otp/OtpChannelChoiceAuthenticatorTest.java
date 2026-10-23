@@ -128,7 +128,7 @@ class OtpChannelChoiceAuthenticatorTest {
         authenticator.action(context);
 
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("sms"));
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(context).challenge(formResponse);
     }
 
@@ -176,7 +176,7 @@ class OtpChannelChoiceAuthenticatorTest {
         when(context.form()).thenReturn(form);
         when(form.setError(anyString())).thenReturn(form);
         when(form.createErrorPage(any())).thenReturn(formResponse);
-        doThrow(new SmsException("fail")).when(smsProvider).send(anyString(), anyString());
+        doThrow(new SmsException("fail")).when(smsProvider).send(anyString(), anyString(), any());
 
         authenticator.action(context);
 
@@ -375,7 +375,7 @@ class OtpChannelChoiceAuthenticatorTest {
 
         authenticator.action(context);
 
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(context).failureChallenge(eq(AuthenticationFlowError.EXPIRED_CODE), any());
     }
 
@@ -444,7 +444,7 @@ class OtpChannelChoiceAuthenticatorTest {
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("sms"));
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CODE), anyString());
         // SMS should be sent (not email)
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(context).challenge(formResponse);
     }
 
@@ -569,7 +569,7 @@ class OtpChannelChoiceAuthenticatorTest {
         authenticator.authenticate(context);
 
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("sms"));
-        verify(smsProvider).send(eq("+1234567890"), anyString());
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
         verify(context).challenge(formResponse);
         verify(form, never()).createForm(OtpChannelChoiceAuthenticator.TEMPLATE_CHANNEL_SELECT);
     }
