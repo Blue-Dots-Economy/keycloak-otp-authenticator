@@ -14,4 +14,9 @@ public record SmsContext(String otpFlow, String clientId, Map<String, String> va
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<>(variables));
     }
+
+    @Override
+    public Map<String, String> variables() {
+        return Collections.unmodifiableMap(variables);
+    }
 }
