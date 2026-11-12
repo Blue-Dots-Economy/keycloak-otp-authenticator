@@ -69,6 +69,7 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     private static String resolvePreselectedChannel(AuthenticationFlowContext context) {
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
         if (authSession == null) return null;
+        if (isInvited(context.getUser())) return CHANNEL_EMAIL;
 
         // Re-entry from browser back / resend on the OTP form: a channel was already chosen.
         String existing = authSession.getAuthNote(AUTH_NOTE_CHANNEL);
@@ -104,6 +105,10 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     }
 
     private void handleChannelSelection(AuthenticationFlowContext context) {
+        if (isInvited(context.getUser())) {
+            sendCodeAndChallenge(context, CHANNEL_EMAIL);
+            return;
+        }
         String channel = context.getHttpRequest().getDecodedFormParameters().getFirst(PARAM_CHANNEL);
         if (channel == null || (!CHANNEL_EMAIL.equals(channel) && !CHANNEL_SMS.equals(channel))) {
             context.challenge(context.form().setError("otpChannelInvalid").createForm(TEMPLATE_CHANNEL_SELECT));
@@ -171,6 +176,10 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
             // (rather than silently re-sending a code via an auto-routed channel).
             authSession.removeAuthNote(AUTH_NOTE_CHANNEL);
             authSession.removeAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE);
+            if (isInvited(context.getUser())) {
+                sendCodeAndChallenge(context, CHANNEL_EMAIL);
+                return;
+            }
             context.challenge(context.form().createForm(TEMPLATE_CHANNEL_SELECT));
             return;
         }
@@ -229,6 +238,11 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
                     getConfigString(context, OtpChannelChoiceConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE),
                     target);
         }
+    }
+
+    private static boolean isInvited(UserModel user) {
+        return user != null && OtpChannelChoiceConst.INVITED_VALUE.equals(
+                user.getFirstAttribute(OtpChannelChoiceConst.INVITED_ATTRIBUTE));
     }
 
     @Override

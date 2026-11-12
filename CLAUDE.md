@@ -83,7 +83,7 @@ Two things about it are easy to get wrong:
 **otp-2fa** — browser flow authenticators (2FA after password):
 - `EmailOtpAuthenticator` / `EmailOtpAuthenticatorFactory` — email OTP form
 - `SmsOtpAuthenticator` / `SmsOtpAuthenticatorFactory` — SMS OTP form
-- `OtpChannelChoiceAuthenticator` / `OtpChannelChoiceAuthenticatorFactory` — combined channel selection + OTP form (user picks email or SMS)
+- `OtpChannelChoiceAuthenticator` / `OtpChannelChoiceAuthenticatorFactory` — combined channel selection + OTP form (user picks email or SMS); users with attribute `decision_made=invited` are always sent an email code
 - Stores OTP state in `AuthenticationSessionModel` auth notes
 
 **otp-login** — custom OAuth2 grant types for OTP login:

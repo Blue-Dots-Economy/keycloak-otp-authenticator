@@ -600,4 +600,98 @@ class OtpChannelChoiceAuthenticatorTest {
         verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
         verify(context).challenge(formResponse);
     }
+
+    private void markInvited(String decision) {
+        when(user.getFirstAttribute(OtpChannelChoiceConst.INVITED_ATTRIBUTE)).thenReturn(decision);
+    }
+
+    private void postChannel(String channel) {
+        MultivaluedMap<String, String> formParams = new MultivaluedHashMap<>();
+        formParams.putSingle(OtpChannelChoiceAuthenticator.PARAM_CHANNEL, channel);
+        when(context.getHttpRequest()).thenReturn(httpRequest);
+        when(httpRequest.getDecodedFormParameters()).thenReturn(formParams);
+    }
+
+    @Test
+    void authenticate_invitedUser_sendsEmailWithoutPicker() throws Exception {
+        setupCommonMocks();
+        markInvited("invited");
+        when(authSession.getAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE))
+                .thenReturn(IdentifierUtil.IdentifierType.PHONE.name());
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.authenticate(context);
+
+        verify(authSession).setAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL, "email");
+        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verify(smsProvider, never()).send(anyString(), anyString(), any());
+        verify(form, never()).createForm(OtpChannelChoiceAuthenticator.TEMPLATE_CHANNEL_SELECT);
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_invitedUserPostsSms_sendsEmailInstead() throws Exception {
+        setupCommonMocks();
+        markInvited("invited");
+        postChannel("sms");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(authSession).setAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL, "email");
+        verify(authSession, never()).setAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL, "sms");
+        verify(smsProvider, never()).send(anyString(), anyString(), any());
+        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_invitedUserMissingSessionState_sendsEmailWithoutPicker() throws Exception {
+        setupCommonMocks();
+        markInvited("invited");
+        MultivaluedMap<String, String> formParams = new MultivaluedHashMap<>();
+        formParams.putSingle(OtpChannelChoiceAuthenticator.PARAM_OTP, "123456");
+        when(context.getHttpRequest()).thenReturn(httpRequest);
+        when(httpRequest.getDecodedFormParameters()).thenReturn(formParams);
+        when(authSession.getAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL)).thenReturn("email");
+        when(authSession.getAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CODE)).thenReturn(null);
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(emailProvider).send(eq(EmailOtpConst.EMAIL_SUBJECT_KEY), eq(EmailOtpConst.EMAIL_TEMPLATE), any());
+        verify(form, never()).createForm(OtpChannelChoiceAuthenticator.TEMPLATE_CHANNEL_SELECT);
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void authenticate_otherDecision_showsPicker() {
+        when(context.getAuthenticationSession()).thenReturn(authSession);
+        when(context.getUser()).thenReturn(user);
+        markInvited("approved");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(OtpChannelChoiceAuthenticator.TEMPLATE_CHANNEL_SELECT)).thenReturn(formResponse);
+
+        authenticator.authenticate(context);
+
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_otherDecisionPostsSms_sendsSms() throws Exception {
+        setupCommonMocks();
+        markInvited("approved");
+        postChannel("sms");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(SmsOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(authSession).setAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL, "sms");
+        verify(smsProvider).send(eq("+1234567890"), anyString(), any());
+        verify(emailProvider, never()).send(anyString(), anyString(), any());
+    }
 }
