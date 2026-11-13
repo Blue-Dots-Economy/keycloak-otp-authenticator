@@ -1,5 +1,6 @@
 package hr.delmisoft.keycloak.otp.identifier;
 
+import hr.delmisoft.keycloak.otp.OtpChannelChoiceConst;
 import hr.delmisoft.keycloak.otp.sms.SmsOtpConst;
 import org.jboss.logging.Logger;
 import org.keycloak.authentication.AuthenticationFlowContext;
@@ -10,6 +11,7 @@ import org.keycloak.events.Errors;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
 import java.util.Optional;
@@ -31,13 +33,40 @@ public class IdentifierFormAuthenticator implements Authenticator {
 
     @Override
     public void authenticate(AuthenticationFlowContext context) {
-        context.challenge(context.form().createForm(IdentifierFormConst.LOGIN_TEMPLATE));
+        String loginHint = context.getAuthenticationSession().getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM);
+        if (loginHint == null || loginHint.isBlank()) {
+            context.challenge(context.form().createForm(IdentifierFormConst.LOGIN_TEMPLATE));
+            return;
+        }
+        String hint = loginHint.trim();
+        if (isInvitedEmail(context, hint)) {
+            submitIdentifier(context, hint);
+            return;
+        }
+        context.challenge(context.form()
+                .setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, hint)
+                .createForm(IdentifierFormConst.LOGIN_TEMPLATE));
+    }
+
+    /**
+     * Whether a login hint is the email of an invited user, the only case that skips the form.
+     */
+    private static boolean isInvitedEmail(AuthenticationFlowContext context, String hint) {
+        if (IdentifierUtil.detect(hint) != IdentifierUtil.IdentifierType.EMAIL) {
+            return false;
+        }
+        return IdentifierUtil.findUser(context.getSession(), context.getRealm(), hint)
+                .map(u -> OtpChannelChoiceConst.INVITED_VALUE.equals(
+                        u.getFirstAttribute(OtpChannelChoiceConst.INVITED_ATTRIBUTE)))
+                .orElse(false);
     }
 
     @Override
     public void action(AuthenticationFlowContext context) {
-        String identifier = context.getHttpRequest().getDecodedFormParameters().getFirst(IdentifierFormConst.PARAM_IDENTIFIER);
+        submitIdentifier(context, context.getHttpRequest().getDecodedFormParameters().getFirst(IdentifierFormConst.PARAM_IDENTIFIER));
+    }
 
+    private void submitIdentifier(AuthenticationFlowContext context, String identifier) {
         if (identifier == null || identifier.isBlank()) {
             context.getEvent().error(Errors.USERNAME_MISSING);
             context.failureChallenge(AuthenticationFlowError.INVALID_USER,

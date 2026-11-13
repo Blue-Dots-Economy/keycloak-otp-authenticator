@@ -225,6 +225,8 @@ For direct grant (API) usage, use the custom grant types `urn:otp:email` and `ur
 
 The **OTP Channel Choice** authenticator presents a single screen where the user selects between email and SMS OTP, then enters the code — all within one authenticator execution.
 
+Users whose `decision_made` attribute is `invited` never see the choice screen and cannot pick SMS: the code always goes to their email.
+
 ```
 auth-cookie                        (ALTERNATIVE)
 browser-otp-choice-forms           (ALTERNATIVE)

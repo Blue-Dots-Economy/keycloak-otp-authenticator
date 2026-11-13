@@ -6,6 +6,9 @@ public final class OtpChannelChoiceConst {
 
     public static final String PROVIDER_ID = "otp-channel-choice-form";
 
+    public static final String INVITED_ATTRIBUTE = "decision_made";
+    public static final String INVITED_VALUE = "invited";
+
     // Config keys (shared for both channels)
     public static final String CONFIG_CODE_LENGTH = "otpChoice.codeLength";
     public static final String CONFIG_TTL = "otpChoice.ttl";

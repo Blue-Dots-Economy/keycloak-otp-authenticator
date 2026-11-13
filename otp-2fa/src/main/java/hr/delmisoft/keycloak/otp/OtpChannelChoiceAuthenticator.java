@@ -12,6 +12,7 @@ import org.keycloak.authentication.Authenticator;
 import org.keycloak.common.util.Time;
 import org.keycloak.email.EmailException;
 import org.keycloak.email.EmailTemplateProvider;
+import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.models.AuthenticatorConfigModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -52,6 +53,9 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     static final String CHANNEL_EMAIL = "email";
     static final String CHANNEL_SMS = "sms";
 
+    static final String ATTR_SENT_TO = "otpSentTo";
+    static final String ATTR_VALID_MINUTES = "otpValidMinutes";
+
     private static final SecureRandom RANDOM = new SecureRandom();
 
     @Override
@@ -69,6 +73,7 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     private static String resolvePreselectedChannel(AuthenticationFlowContext context) {
         AuthenticationSessionModel authSession = context.getAuthenticationSession();
         if (authSession == null) return null;
+        if (isInvited(context.getUser())) return CHANNEL_EMAIL;
 
         // Re-entry from browser back / resend on the OTP form: a channel was already chosen.
         String existing = authSession.getAuthNote(AUTH_NOTE_CHANNEL);
@@ -104,6 +109,10 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     }
 
     private void handleChannelSelection(AuthenticationFlowContext context) {
+        if (isInvited(context.getUser())) {
+            sendCodeAndChallenge(context, CHANNEL_EMAIL);
+            return;
+        }
         String channel = context.getHttpRequest().getDecodedFormParameters().getFirst(PARAM_CHANNEL);
         if (channel == null || (!CHANNEL_EMAIL.equals(channel) && !CHANNEL_SMS.equals(channel))) {
             context.challenge(context.form().setError("otpChannelInvalid").createForm(TEMPLATE_CHANNEL_SELECT));
@@ -143,7 +152,7 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
         }
 
         if (sent) {
-            context.challenge(context.form().createForm(template));
+            context.challenge(codeForm(context, channel).createForm(template));
         }
     }
 
@@ -156,7 +165,7 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
 
         if (enteredOtp == null || enteredOtp.isBlank()) {
             context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-                    context.form().setError(errorInvalid).createForm(template));
+                    codeForm(context, channel).setError(errorInvalid).createForm(template));
             return;
         }
 
@@ -171,6 +180,10 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
             // (rather than silently re-sending a code via an auto-routed channel).
             authSession.removeAuthNote(AUTH_NOTE_CHANNEL);
             authSession.removeAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE);
+            if (isInvited(context.getUser())) {
+                sendCodeAndChallenge(context, CHANNEL_EMAIL);
+                return;
+            }
             context.challenge(context.form().createForm(TEMPLATE_CHANNEL_SELECT));
             return;
         }
@@ -192,13 +205,13 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
                 sendSms(context, newCode);
             }
             context.failureChallenge(AuthenticationFlowError.EXPIRED_CODE,
-                    context.form().setError(errorExpired).createForm(template));
+                    codeForm(context, channel).setError(errorExpired).createForm(template));
             return;
         }
 
         if (attempts >= maxRetries) {
             context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-                    context.form().setError(errorMaxRetries).createForm(template));
+                    codeForm(context, channel).setError(errorMaxRetries).createForm(template));
             return;
         }
 
@@ -208,8 +221,26 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
         } else {
             authSession.setAuthNote(AUTH_NOTE_ATTEMPTS, String.valueOf(attempts + 1));
             context.failureChallenge(AuthenticationFlowError.INVALID_CREDENTIALS,
-                    context.form().setError(errorInvalid).createForm(template));
+                    codeForm(context, channel).setError(errorInvalid).createForm(template));
         }
+    }
+
+    /**
+     * Starts the code-entry form with how long the code is valid and, when the user typed an email,
+     * the masked address the code went to.
+     */
+    private LoginFormsProvider codeForm(AuthenticationFlowContext context, String channel) {
+        LoginFormsProvider form = context.form();
+        AuthenticationSessionModel authSession = context.getAuthenticationSession();
+        String typed = authSession.getAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE);
+        if (CHANNEL_EMAIL.equals(channel) && IdentifierUtil.IdentifierType.EMAIL.name().equals(typed)) {
+            String sentTo = OtpTargetMask.email(authSession.getAuthNote(AUTH_NOTE_TARGET));
+            if (sentTo != null) {
+                form.setAttribute(ATTR_SENT_TO, sentTo);
+            }
+        }
+        int ttl = getConfigInt(context, OtpChannelChoiceConst.CONFIG_TTL, OtpChannelChoiceConst.DEFAULT_TTL);
+        return form.setAttribute(ATTR_VALID_MINUTES, Math.max(1, (ttl + 59) / 60));
     }
 
     /**
@@ -229,6 +260,11 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
                     getConfigString(context, OtpChannelChoiceConst.CONFIG_PHONE_VERIFIED_ATTRIBUTE, SmsOtpConst.DEFAULT_PHONE_VERIFIED_ATTRIBUTE),
                     target);
         }
+    }
+
+    private static boolean isInvited(UserModel user) {
+        return user != null && OtpChannelChoiceConst.INVITED_VALUE.equals(
+                user.getFirstAttribute(OtpChannelChoiceConst.INVITED_ATTRIBUTE));
     }
 
     @Override

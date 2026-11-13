@@ -17,6 +17,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserProvider;
+import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.sessions.AuthenticationSessionModel;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -79,6 +80,64 @@ class IdentifierFormAuthenticatorTest {
         authenticator.authenticate(context);
         verify(form).createForm(IdentifierFormConst.LOGIN_TEMPLATE);
         verify(context).challenge(challengeResponse);
+    }
+
+    @Test
+    void authenticate_loginHintOfInvitedUser_skipsFormAndSucceeds() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn(" alice@example.com ");
+        when(userProvider.getUserByEmail(realm, "alice@example.com")).thenReturn(user);
+        when(user.getEmail()).thenReturn("alice@example.com");
+        when(user.getUsername()).thenReturn("alice");
+        when(user.getFirstAttribute("decision_made")).thenReturn("invited");
+        authenticator.authenticate(context);
+        verify(authSession).setAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER, "alice@example.com");
+        verify(authSession).setAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE, IdentifierUtil.IdentifierType.EMAIL.name());
+        verify(context).setUser(user);
+        verify(context).success();
+        verify(context, never()).challenge(any());
+    }
+
+    @Test
+    void authenticate_loginHintOfUserNotInvited_prefillsFormWithoutContinuing() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("alice@example.com");
+        when(userProvider.getUserByEmail(realm, "alice@example.com")).thenReturn(user);
+        when(user.getEmail()).thenReturn("alice@example.com");
+        when(user.getFirstAttribute("decision_made")).thenReturn("approved");
+        authenticator.authenticate(context);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "alice@example.com");
+        verify(context).challenge(challengeResponse);
+        verify(context, never()).setUser(any());
+        verify(context, never()).success();
+    }
+
+    @Test
+    void authenticate_loginHintUnknownUser_prefillsFormWithoutError() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("missing@example.com");
+        when(userProvider.getUserByEmail(realm, "missing@example.com")).thenReturn(null);
+        authenticator.authenticate(context);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "missing@example.com");
+        verify(form, never()).setError(anyString());
+        verify(context).challenge(challengeResponse);
+        verify(context, never()).success();
+    }
+
+    @Test
+    void authenticate_phoneLoginHint_prefillsFormWithoutLookingUpTheUser() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("9876543210");
+        authenticator.authenticate(context);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "9876543210");
+        verify(context).challenge(challengeResponse);
+        verify(userProvider, never()).searchForUserByUserAttributeStream(any(), anyString(), anyString());
+        verify(context, never()).success();
+    }
+
+    @Test
+    void authenticate_blankLoginHint_rendersForm() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("   ");
+        authenticator.authenticate(context);
+        verify(context).challenge(challengeResponse);
+        verify(form, never()).setError(anyString());
+        verify(context, never()).success();
     }
 
     @Test
