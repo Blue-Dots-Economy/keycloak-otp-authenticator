@@ -22,6 +22,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -58,7 +59,7 @@ class OtpChannelChoiceAuthenticatorTest {
     @Mock private AuthenticationSessionModel authSession;
     @Mock private EmailTemplateProvider emailProvider;
     @Mock private SmsProvider smsProvider;
-    @Mock private LoginFormsProvider form;
+    @Mock(answer = Answers.RETURNS_SELF) private LoginFormsProvider form;
     @Mock private HttpRequest httpRequest;
     @Mock private AuthenticatorConfigModel authenticatorConfig;
     @Mock private Response formResponse;
@@ -129,6 +130,34 @@ class OtpChannelChoiceAuthenticatorTest {
 
         verify(authSession).setAuthNote(eq(OtpChannelChoiceAuthenticator.AUTH_NOTE_CHANNEL), eq("sms"));
         verify(smsProvider).send(eq("+1234567890"), anyString(), any());
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_selectEmail_showsMaskedAddressAndValidity() throws Exception {
+        setupCommonMocks();
+        postChannel("email");
+        when(authSession.getAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_TARGET)).thenReturn("testuser@example.com");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(form).setAttribute(OtpChannelChoiceAuthenticator.ATTR_SENT_TO, "te***@example.com");
+        verify(form).setAttribute(OtpChannelChoiceAuthenticator.ATTR_VALID_MINUTES, 5);
+        verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_selectSms_doesNotNameAnEmailAddress() throws Exception {
+        setupCommonMocks();
+        postChannel("sms");
+        when(context.form()).thenReturn(form);
+        when(form.createForm(SmsOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(form, never()).setAttribute(eq(OtpChannelChoiceAuthenticator.ATTR_SENT_TO), any());
         verify(context).challenge(formResponse);
     }
 
