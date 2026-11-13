@@ -138,6 +138,8 @@ class OtpChannelChoiceAuthenticatorTest {
         setupCommonMocks();
         postChannel("email");
         when(authSession.getAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_TARGET)).thenReturn("testuser@example.com");
+        when(authSession.getAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE))
+                .thenReturn(IdentifierUtil.IdentifierType.EMAIL.name());
         when(context.form()).thenReturn(form);
         when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
 
@@ -146,6 +148,22 @@ class OtpChannelChoiceAuthenticatorTest {
         verify(form).setAttribute(OtpChannelChoiceAuthenticator.ATTR_SENT_TO, "te***@example.com");
         verify(form).setAttribute(OtpChannelChoiceAuthenticator.ATTR_VALID_MINUTES, 5);
         verify(context).challenge(formResponse);
+    }
+
+    @Test
+    void action_selectEmailAfterTypingAUsername_doesNotNameTheAddress() throws Exception {
+        setupCommonMocks();
+        postChannel("email");
+        when(authSession.getAuthNote(OtpChannelChoiceAuthenticator.AUTH_NOTE_TARGET)).thenReturn("testuser@example.com");
+        when(authSession.getAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE))
+                .thenReturn(IdentifierUtil.IdentifierType.USERNAME.name());
+        when(context.form()).thenReturn(form);
+        when(form.createForm(EmailOtpConst.LOGIN_TEMPLATE)).thenReturn(formResponse);
+
+        authenticator.action(context);
+
+        verify(form, never()).setAttribute(eq(OtpChannelChoiceAuthenticator.ATTR_SENT_TO), any());
+        verify(form).setAttribute(OtpChannelChoiceAuthenticator.ATTR_VALID_MINUTES, 5);
     }
 
     @Test

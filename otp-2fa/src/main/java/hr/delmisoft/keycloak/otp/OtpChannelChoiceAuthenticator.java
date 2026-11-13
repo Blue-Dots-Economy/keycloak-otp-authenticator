@@ -226,12 +226,15 @@ public class OtpChannelChoiceAuthenticator implements Authenticator {
     }
 
     /**
-     * Starts the code-entry form with the masked address the email code went to and how long it is valid.
+     * Starts the code-entry form with how long the code is valid and, when the user typed an email,
+     * the masked address the code went to.
      */
     private LoginFormsProvider codeForm(AuthenticationFlowContext context, String channel) {
         LoginFormsProvider form = context.form();
-        if (CHANNEL_EMAIL.equals(channel)) {
-            String sentTo = OtpTargetMask.email(context.getAuthenticationSession().getAuthNote(AUTH_NOTE_TARGET));
+        AuthenticationSessionModel authSession = context.getAuthenticationSession();
+        String typed = authSession.getAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE);
+        if (CHANNEL_EMAIL.equals(channel) && IdentifierUtil.IdentifierType.EMAIL.name().equals(typed)) {
+            String sentTo = OtpTargetMask.email(authSession.getAuthNote(AUTH_NOTE_TARGET));
             if (sentTo != null) {
                 form.setAttribute(ATTR_SENT_TO, sentTo);
             }

@@ -83,11 +83,12 @@ class IdentifierFormAuthenticatorTest {
     }
 
     @Test
-    void authenticate_loginHintMatchesUser_skipsFormAndSucceeds() {
+    void authenticate_loginHintOfInvitedUser_skipsFormAndSucceeds() {
         when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn(" alice@example.com ");
         when(userProvider.getUserByEmail(realm, "alice@example.com")).thenReturn(user);
         when(user.getEmail()).thenReturn("alice@example.com");
         when(user.getUsername()).thenReturn("alice");
+        when(user.getFirstAttribute("decision_made")).thenReturn("invited");
         authenticator.authenticate(context);
         verify(authSession).setAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER, "alice@example.com");
         verify(authSession).setAuthNote(IdentifierFormConst.AUTH_NOTE_IDENTIFIER_TYPE, IdentifierUtil.IdentifierType.EMAIL.name());
@@ -97,26 +98,36 @@ class IdentifierFormAuthenticatorTest {
     }
 
     @Test
-    void authenticate_loginHintUnknownUser_showsFormLikeTypedIdentifier() {
-        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("missing@example.com");
-        when(userProvider.getUserByEmail(realm, "missing@example.com")).thenReturn(null);
+    void authenticate_loginHintOfUserNotInvited_prefillsFormWithoutContinuing() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("alice@example.com");
+        when(userProvider.getUserByEmail(realm, "alice@example.com")).thenReturn(user);
+        when(user.getEmail()).thenReturn("alice@example.com");
+        when(user.getFirstAttribute("decision_made")).thenReturn("approved");
         authenticator.authenticate(context);
-        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "missing@example.com");
-        verify(form).setError(IdentifierFormConst.ERROR_IDENTIFIER_USER_NOT_FOUND);
-        verify(context).failureChallenge(AuthenticationFlowError.INVALID_USER, challengeResponse);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "alice@example.com");
+        verify(context).challenge(challengeResponse);
         verify(context, never()).setUser(any());
         verify(context, never()).success();
     }
 
     @Test
-    void authenticate_loginHintUserWithoutChannel_showsFormLikeTypedIdentifier() {
-        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("9876543210");
-        when(userProvider.searchForUserByUserAttributeStream(eq(realm), eq(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE), anyString()))
-                .thenReturn(java.util.stream.Stream.of(user));
-        when(user.getFirstAttribute(SmsOtpConst.DEFAULT_PHONE_ATTRIBUTE)).thenReturn(null);
-        when(user.getUsername()).thenReturn("alice");
+    void authenticate_loginHintUnknownUser_prefillsFormWithoutError() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("missing@example.com");
+        when(userProvider.getUserByEmail(realm, "missing@example.com")).thenReturn(null);
         authenticator.authenticate(context);
-        verify(form).setError(IdentifierFormConst.ERROR_IDENTIFIER_NO_CHANNEL);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "missing@example.com");
+        verify(form, never()).setError(anyString());
+        verify(context).challenge(challengeResponse);
+        verify(context, never()).success();
+    }
+
+    @Test
+    void authenticate_phoneLoginHint_prefillsFormWithoutLookingUpTheUser() {
+        when(authSession.getClientNote(OIDCLoginProtocol.LOGIN_HINT_PARAM)).thenReturn("9876543210");
+        authenticator.authenticate(context);
+        verify(form).setAttribute(IdentifierFormConst.PARAM_IDENTIFIER, "9876543210");
+        verify(context).challenge(challengeResponse);
+        verify(userProvider, never()).searchForUserByUserAttributeStream(any(), anyString(), anyString());
         verify(context, never()).success();
     }
 
